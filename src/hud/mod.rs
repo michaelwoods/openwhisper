@@ -253,6 +253,9 @@ pub fn start_hud_service(enabled: bool, position: HudPosition) -> HudController 
         return controller;
     }
 
+    #[cfg(target_os = "linux")]
+    crate::setup::sync_kwin_hud_position(position);
+
     let ctrl_clone = controller.clone();
     std::thread::Builder::new()
         .name("openwhisper-hud".into())
@@ -268,37 +271,50 @@ pub fn start_hud_service(enabled: bool, position: HudPosition) -> HudController 
 }
 
 /// Interactive standalone demo cycling through HUD states
-pub fn run_hud_demo() -> anyhow::Result<()> {
-    let controller = HudController::new(HudModel::new(true, HudPosition::BottomCenter));
+pub fn run_hud_demo(once: bool) -> anyhow::Result<()> {
+    let cfg = crate::config::Config::load().unwrap_or_default();
+    #[cfg(target_os = "linux")]
+    crate::setup::sync_kwin_hud_position(cfg.hud_position);
+
+    let controller = HudController::new(HudModel::new(true, cfg.hud_position));
     let ctrl_demo = controller.clone();
 
     std::thread::spawn(move || {
-        loop {
-            // 1. Recording state for 4 seconds with dynamic audio levels
+        let iterations = if once { 1 } else { usize::MAX };
+        for _ in 0..iterations {
+            // 1. Recording state for 2.5 seconds with dynamic audio levels
             ctrl_demo.set_recording();
             let start = Instant::now();
-            while start.elapsed() < Duration::from_secs(4) {
+            while start.elapsed() < Duration::from_millis(2500) {
                 let t = start.elapsed().as_secs_f32();
                 let rms = ((t * 4.0).sin() * 0.5 + 0.5) * 0.08 + 0.01;
                 ctrl_demo.update_audio_level(rms);
                 std::thread::sleep(Duration::from_millis(50));
             }
 
-            // 2. Transcribing state for 1.8 seconds
+            // 2. Transcribing state for 1.4 seconds
             ctrl_demo.set_transcribing();
-            std::thread::sleep(Duration::from_millis(1800));
+            std::thread::sleep(Duration::from_millis(1400));
 
             // 3. Completed state
-            ctrl_demo.set_completed("Dictating effortlessly with OpenWhisper HUD overlay");
+            ctrl_demo.set_completed("Preview: OpenWhisper HUD overlay active");
             std::thread::sleep(Duration::from_millis(2200));
 
             // 4. Idle state
             ctrl_demo.set_idle();
-            std::thread::sleep(Duration::from_millis(1500));
+            std::thread::sleep(Duration::from_millis(800));
+        }
+
+        if once {
+            if let Ok(lock) = ctrl_demo.ctx.read() {
+                if let Some(ctx) = &*lock {
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close);
+                }
+            }
         }
     });
 
-    println!("🎙️  Running OpenWhisper Floating HUD Demo (press Ctrl+C or close window to exit)...");
+    println!("🎙️  Running OpenWhisper Floating HUD Demo...");
     app::run_hud_window(controller)
 }
 

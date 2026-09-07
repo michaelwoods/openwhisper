@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -243,6 +244,12 @@ pub fn run_gui(config: Config) -> Result<()> {
                                 ui.set_test_in_progress(false);
                                 ui.set_status_text(SharedString::from(msg));
                                 ui.set_status_is_error(false);
+                                let ui_clr = ui.as_weak();
+                                slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
+                                    if let Some(ui) = ui_clr.upgrade() {
+                                        ui.set_status_text(SharedString::default());
+                                    }
+                                });
                             });
                         }
                         Err(err) => {
@@ -251,6 +258,12 @@ pub fn run_gui(config: Config) -> Result<()> {
                                 ui.set_test_in_progress(false);
                                 ui.set_status_text(SharedString::from(msg));
                                 ui.set_status_is_error(true);
+                                let ui_clr = ui.as_weak();
+                                slint::Timer::single_shot(std::time::Duration::from_secs(8), move || {
+                                    if let Some(ui) = ui_clr.upgrade() {
+                                        ui.set_status_text(SharedString::default());
+                                    }
+                                });
                             });
                         }
                     }
@@ -271,10 +284,38 @@ pub fn run_gui(config: Config) -> Result<()> {
     }
 
     // Callback: Preview HUD Overlay
+    let preview_child: Rc<RefCell<Option<std::process::Child>>> = Rc::new(RefCell::new(None));
     {
+        let socket_path = config.socket_path.clone();
+        let child_handle = preview_child.clone();
         ui.on_preview_hud(move || {
-            let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openwhisper"));
-            let _ = std::process::Command::new(exe).arg("hud-demo").spawn();
+            // 1. If daemon is running, trigger seamless preview on daemon's existing HUD
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            let mut sent_ipc = false;
+            if let Ok(rt) = rt {
+                if let Ok(res) = rt.block_on(crate::hotkey::ipc::send_ipc_command(
+                    &socket_path,
+                    crate::hotkey::ipc::IpcCommand::PreviewHud,
+                )) {
+                    if res.status == "ok" {
+                        sent_ipc = true;
+                    }
+                }
+            }
+
+            // 2. If daemon not running, launch tracked 1-shot preview process
+            if !sent_ipc {
+                let mut lock = child_handle.borrow_mut();
+                if let Some(mut child) = lock.take() {
+                    let _ = child.kill();
+                }
+                let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openwhisper"));
+                if let Ok(child) = std::process::Command::new(exe).args(["hud-demo", "--once"]).spawn() {
+                    *lock = Some(child);
+                }
+            }
         });
     }
 
@@ -390,10 +431,26 @@ pub fn run_gui(config: Config) -> Result<()> {
                         ));
                         ui.set_status_is_error(false);
                     }
+
+                    #[cfg(target_os = "linux")]
+                    crate::setup::sync_kwin_hud_position(cfg.hud_position);
+
+                    let ui_clr = ui.as_weak();
+                    slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
+                        if let Some(ui) = ui_clr.upgrade() {
+                            ui.set_status_text(SharedString::default());
+                        }
+                    });
                 }
                 Err(e) => {
                     ui.set_status_text(SharedString::from(format!("Failed to save config: {e}")));
                     ui.set_status_is_error(true);
+                    let ui_clr = ui.as_weak();
+                    slint::Timer::single_shot(std::time::Duration::from_secs(8), move || {
+                        if let Some(ui) = ui_clr.upgrade() {
+                            ui.set_status_text(SharedString::default());
+                        }
+                    });
                 }
             }
         });
@@ -460,12 +517,24 @@ pub fn run_gui(config: Config) -> Result<()> {
                 "Reset to default configuration values. Click 'Save & Apply' to persist.",
             ));
             ui.set_status_is_error(false);
+
+            let ui_clr = ui.as_weak();
+            slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
+                if let Some(ui) = ui_clr.upgrade() {
+                    ui.set_status_text(SharedString::default());
+                }
+            });
         });
     }
 
-    ui.run()
-        .map_err(|e| anyhow::anyhow!("Slint GUI error: {e}"))?;
+    let res = ui.run()
+        .map_err(|e| anyhow::anyhow!("Slint GUI error: {e}"));
 
+    if let Some(mut child) = preview_child.borrow_mut().take() {
+        let _ = child.kill();
+    }
+
+    res?;
     Ok(())
 }
 

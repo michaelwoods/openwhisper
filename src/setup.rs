@@ -230,7 +230,134 @@ fn configure_kwin_rules() {
             .output();
     }
 
-    println!("   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above forced for Wayland)");
+    // Set initial position based on current config (defaulting to BottomCenter)
+    let cfg = crate::config::Config::load().unwrap_or_default();
+    sync_kwin_hud_position(cfg.hud_position);
+
+    println!("   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above & screen position forced for Wayland)");
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_escape = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if c == 'm' {
+                in_escape = false;
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[cfg(target_os = "linux")]
+pub fn detect_screen_geometry() -> (i32, i32) {
+    // 1. Try kscreen-doctor on KDE Wayland
+    if let Ok(output) = std::process::Command::new("kscreen-doctor").arg("-o").output() {
+        if let Ok(text) = String::from_utf8(output.stdout) {
+            for line in text.lines() {
+                if line.contains("Geometry:") {
+                    let clean = strip_ansi(line);
+                    for token in clean.split_whitespace() {
+                        if token.contains('x') && !token.contains('@') && !token.contains(',') {
+                            let parts: Vec<&str> = token.split('x').collect();
+                            if parts.len() == 2 {
+                                if let (Ok(w), Ok(h)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                                    if w >= 400 && h >= 300 {
+                                        return (w, h);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: xrandr
+    if let Ok(output) = std::process::Command::new("xrandr").arg("--current").output() {
+        if let Ok(text) = String::from_utf8(output.stdout) {
+            for line in text.lines() {
+                if line.contains(" connected") {
+                    for token in line.split_whitespace() {
+                        if let Some((geom, _)) = token.split_once('+') {
+                            if let Some((w_str, h_str)) = geom.split_once('x') {
+                                if let (Ok(w), Ok(h)) = (w_str.parse::<i32>(), h_str.parse::<i32>()) {
+                                    if w >= 400 && h >= 300 {
+                                        return (w, h);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (1920, 1080)
+}
+
+#[cfg(target_os = "linux")]
+pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
+    let write_cmd = if has_command_in_path("kwriteconfig6") {
+        "kwriteconfig6"
+    } else if has_command_in_path("kwriteconfig5") {
+        "kwriteconfig5"
+    } else if has_command_in_path("kwriteconfig") {
+        "kwriteconfig"
+    } else {
+        return;
+    };
+
+    let (screen_w, screen_h) = detect_screen_geometry();
+    let win_w = 290;
+    let win_h = 48;
+    let margin_y = 60;
+    let margin_x = 40;
+
+    let (x, y) = match position {
+        crate::config::HudPosition::BottomCenter => {
+            ((screen_w - win_w) / 2, screen_h - win_h - margin_y)
+        }
+        crate::config::HudPosition::TopCenter => {
+            ((screen_w - win_w) / 2, margin_y)
+        }
+        crate::config::HudPosition::BottomRight => {
+            (screen_w - win_w - margin_x, screen_h - win_h - margin_y)
+        }
+        crate::config::HudPosition::TopRight => {
+            (screen_w - win_w - margin_x, margin_y)
+        }
+    };
+
+    let pos_str = format!("{x},{y}");
+    let _ = std::process::Command::new(write_cmd)
+        .args(["--file", "kwinrulesrc", "--group", "openwhisper_hud", "--key", "position", &pos_str])
+        .output();
+
+    let _ = std::process::Command::new(write_cmd)
+        .args(["--file", "kwinrulesrc", "--group", "openwhisper_hud", "--key", "positionrule", "2"])
+        .output();
+
+    let qdbus_cmd = if has_command_in_path("qdbus-qt6") {
+        Some("qdbus-qt6")
+    } else if has_command_in_path("qdbus") {
+        Some("qdbus")
+    } else {
+        None
+    };
+
+    if let Some(cmd) = qdbus_cmd {
+        let _ = std::process::Command::new(cmd)
+            .args(["org.kde.KWin", "/KWin", "reconfigure"])
+            .output();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -276,3 +403,23 @@ fn apply_systemd_env(cmd: &mut std::process::Command) {
         cmd.env("DBUS_SESSION_BUS_ADDRESS", &bus);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_ansi() {
+        let input = "\x1b[01;33m\tGeometry: \x1b[0;0m0,0 1707x1067";
+        let cleaned = strip_ansi(input);
+        assert_eq!(cleaned, "\tGeometry: 0,0 1707x1067");
+    }
+
+    #[test]
+    fn test_detect_screen_geometry_bounds() {
+        let (w, h) = detect_screen_geometry();
+        assert!(w >= 640);
+        assert!(h >= 480);
+    }
+}
+

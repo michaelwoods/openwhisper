@@ -41,6 +41,11 @@ export component SettingsWindow inherits Window {
     in-out property <string> status-text: "";
     in-out property <bool> status-is-error: false;
     in-out property <bool> test-in-progress: false;
+    in-out property <int> active-tab: 0;
+
+    changed active-tab => {
+        root.status-text = "";
+    }
 
     // Callbacks to Rust
     callback save-and-apply();
@@ -68,6 +73,7 @@ export component SettingsWindow inherits Window {
 
         TabWidget {
             vertical-stretch: 1;
+            current-index <=> root.active-tab;
 
             Tab {
                 title: "Endpoint";

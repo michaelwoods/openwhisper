@@ -161,8 +161,8 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::HudDemo => {
-            hud::run_hud_demo()?;
+        Commands::HudDemo { once } => {
+            hud::run_hud_demo(once)?;
             Ok(())
         }
 
@@ -315,6 +315,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                             eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
                             hud_ctrl.set_enabled(new_cfg.hud_enabled);
                             hud_ctrl.set_position(new_cfg.hud_position);
+                            #[cfg(target_os = "linux")]
+                            crate::setup::sync_kwin_hud_position(new_cfg.hud_position);
 
                             // Reload evdev hardware listener if hotkey settings changed
                             if new_cfg.evdev_hotkey_enabled != active_config.evdev_hotkey_enabled
@@ -335,6 +337,25 @@ async fn run_daemon(config: Config) -> Result<()> {
                             tracing::error!("Failed to reload config from disk: {err}");
                         }
                     }
+                    Action::None
+                }
+                IpcCommand::PreviewHud => {
+                    tracing::info!("PreviewHud IPC command received. Triggering 1-shot HUD demo preview...");
+                    let ctrl = hud_ctrl.clone();
+                    tokio::spawn(async move {
+                        ctrl.set_recording();
+                        for i in 0..50 {
+                            let t = i as f32 * 0.05;
+                            let rms = ((t * 4.0).sin() * 0.5 + 0.5) * 0.08 + 0.01;
+                            ctrl.update_audio_level(rms);
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+                        ctrl.set_transcribing();
+                        tokio::time::sleep(Duration::from_millis(1400)).await;
+                        ctrl.set_completed("Preview: OpenWhisper HUD overlay active");
+                        tokio::time::sleep(Duration::from_millis(2200)).await;
+                        ctrl.set_idle();
+                    });
                     Action::None
                 }
             }

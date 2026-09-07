@@ -15,6 +15,7 @@ pub enum IpcCommand {
     Cancel,
     Status,
     ReloadConfig,
+    PreviewHud,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,15 +102,29 @@ impl IpcServer {
 /// Parses an incoming IPC command string either from JSON or from plain-text alias.
 pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
     let cmd_trim = input.trim();
-    serde_json::from_str(cmd_trim).ok().or_else(|| match cmd_trim {
+    if let Ok(cmd) = serde_json::from_str::<IpcCommand>(cmd_trim) {
+        return Some(cmd);
+    }
+
+    #[derive(Deserialize)]
+    struct CmdWrapper {
+        #[serde(alias = "action")]
+        command: String,
+    }
+    if let Ok(wrapper) = serde_json::from_str::<CmdWrapper>(cmd_trim) {
+        return parse_ipc_command(&wrapper.command);
+    }
+
+    match cmd_trim {
         "toggle" => Some(IpcCommand::Toggle),
         "ptt-down" | "down" | "press" => Some(IpcCommand::PttDown),
         "ptt-up" | "up" | "release" => Some(IpcCommand::PttUp),
         "cancel" => Some(IpcCommand::Cancel),
         "status" => Some(IpcCommand::Status),
         "reload" | "reload-config" | "reload_config" => Some(IpcCommand::ReloadConfig),
+        "preview-hud" | "preview_hud" | "preview" => Some(IpcCommand::PreviewHud),
         _ => None,
-    })
+    }
 }
 
 pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
@@ -139,6 +154,8 @@ mod tests {
         assert!(matches!(parse_ipc_command(r#""cancel""#), Some(IpcCommand::Cancel)));
         assert!(matches!(parse_ipc_command(r#""status""#), Some(IpcCommand::Status)));
         assert!(matches!(parse_ipc_command(r#""reload_config""#), Some(IpcCommand::ReloadConfig)));
+        assert!(matches!(parse_ipc_command(r#"{"command":"preview_hud"}"#), Some(IpcCommand::PreviewHud)));
+        assert!(matches!(parse_ipc_command(r#"{"action":"toggle"}"#), Some(IpcCommand::Toggle)));
     }
 
     #[test]
@@ -150,9 +167,10 @@ mod tests {
         assert!(matches!(parse_ipc_command("release"), Some(IpcCommand::PttUp)));
         assert!(matches!(parse_ipc_command("cancel"), Some(IpcCommand::Cancel)));
         assert!(matches!(parse_ipc_command("status"), Some(IpcCommand::Status)));
-        assert!(matches!(parse_ipc_command("reload"), Some(IpcCommand::ReloadConfig)));
         assert!(matches!(parse_ipc_command("reload-config"), Some(IpcCommand::ReloadConfig)));
         assert!(matches!(parse_ipc_command("reload_config"), Some(IpcCommand::ReloadConfig)));
+        assert!(matches!(parse_ipc_command("preview-hud"), Some(IpcCommand::PreviewHud)));
+        assert!(matches!(parse_ipc_command("preview"), Some(IpcCommand::PreviewHud)));
         assert!(parse_ipc_command("invalid_xyz").is_none());
     }
 

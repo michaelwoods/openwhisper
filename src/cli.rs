@@ -73,7 +73,11 @@ pub enum Commands {
 
     /// Launch interactive preview of the floating HUD overlay
     #[command(alias = "test-hud", alias = "hud")]
-    HudDemo,
+    HudDemo {
+        /// Run only one preview cycle and automatically exit
+        #[arg(long, default_value_t = false)]
+        once: bool,
+    },
 
     /// Sniff hardware key events via evdev to inspect scancodes, press/release, and hold duration
     #[command(alias = "test-key", alias = "sniff-keys")]

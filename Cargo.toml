@@ -35,7 +35,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 thiserror = "2.0"
 
-# GUI Configuration Panel
+# GUI Configuration Panel & Native Toolkit
+slint = { version = "1.17", default-features = false, features = ["std", "backend-default", "renderer-femtovg", "renderer-software", "accessibility", "compat-1-2"] }
 eframe = { version = "0.35.0", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
 
 # Linux / Wayland D-Bus portal & virtual input & system tray
@@ -44,4 +45,7 @@ zbus = { version = "5.5", features = ["tokio"] }
 evdev = "0.12"
 ksni = "0.3.6"
 winit = "0.30"
+
+[build-dependencies]
+slint-build = "1.17"
 

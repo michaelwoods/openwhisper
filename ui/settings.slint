@@ -1,0 +1,455 @@
+import { Button, CheckBox, ComboBox, LineEdit, Slider, ScrollView, GroupBox, TabWidget, HorizontalBox, VerticalBox } from "std-widgets.slint";
+
+export component SettingsWindow inherits Window {
+    title: "OpenWhisper Settings";
+    preferred-width: 620px;
+    preferred-height: 680px;
+    min-width: 500px;
+    min-height: 520px;
+
+    // Configuration Properties (In & Out)
+    in-out property <string> server-url: "http://localhost:8000/v1/audio/transcriptions";
+    in-out property <string> model-name: "whisper";
+    in-out property <string> api-key: "";
+    in-out property <string> language: "";
+    in-out property <string> prompt-text: "";
+    
+    in-out property <bool> evdev-enabled: true;
+    in-out property <string> evdev-key: "KEY_RIGHTALT";
+    in-out property <int> ptt-threshold: 350;
+    in-out property <int> output-mode-index: 0; // 0 = Paste, 1 = ClipboardOnly, 2 = Type
+    in-out property <int> paste-delay: 60;
+
+    in-out property <bool> sound-enabled: true;
+    in-out property <float> sound-vol: 0.5;
+    in-out property <bool> notifications-enabled: true;
+
+    in-out property <bool> hud-enabled: true;
+    in-out property <int> hud-position-index: 0; // 0 = bottom_center, 1 = top_center, 2 = bottom_right, 3 = top_right
+
+    in-out property <bool> vad-enabled: false;
+    in-out property <int> vad-silence-timeout: 1800;
+    in-out property <float> vad-threshold: 0.015;
+
+    in-out property <int> formatting-mode-index: 0; // 0 = Standard, 1 = snake_case, 2 = camelCase, 3 = kebab-case, 4 = raw
+    in-out property <bool> trailing-space: true;
+
+    in-out property <[string]> vocab-words: [];
+    in-out property <string> new-word-text: "";
+
+    // Status Banner
+    in-out property <string> status-text: "";
+    in-out property <bool> status-is-error: false;
+    in-out property <bool> test-in-progress: false;
+
+    // Callbacks to Rust
+    callback save-and-apply();
+    callback reset-defaults();
+    callback test-connection();
+    callback test-sound();
+    callback preview-hud();
+    callback add-word(string);
+    callback remove-word(int);
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 10px;
+
+        // Top Header
+        HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: "OpenWhisper Settings";
+                font-size: 18px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+
+        TabWidget {
+            vertical-stretch: 1;
+
+            Tab {
+                title: "Endpoint";
+                ScrollView {
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 12px;
+
+                        GroupBox {
+                            title: "Speech-to-Text Server";
+                            VerticalBox {
+                                spacing: 8px;
+                                Text { text: "Server URL:"; font-size: 12px; }
+                                LineEdit {
+                                    text <=> root.server-url;
+                                    placeholder-text: "http://localhost:8000/v1/audio/transcriptions";
+                                }
+
+                                Text { text: "Model Name:"; font-size: 12px; }
+                                LineEdit {
+                                    text <=> root.model-name;
+                                    placeholder-text: "whisper";
+                                }
+
+                                Text { text: "API Key (optional):"; font-size: 12px; }
+                                LineEdit {
+                                    text <=> root.api-key;
+                                    placeholder-text: "Bearer token (leave blank for local server)";
+                                    input-type: password;
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Transcription Options";
+                            VerticalBox {
+                                spacing: 8px;
+                                Text { text: "Language (leave empty for auto-detect):"; font-size: 12px; }
+                                LineEdit {
+                                    text <=> root.language;
+                                    placeholder-text: "e.g. en, es, de, fr";
+                                }
+
+                                Text { text: "Initial Prompt / Biasing Context:"; font-size: 12px; }
+                                LineEdit {
+                                    text <=> root.prompt-text;
+                                    placeholder-text: "Optional domain terminology prompt";
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            alignment: start;
+                            Button {
+                                text: root.test-in-progress ? "Testing Connection..." : "Test Connection";
+                                enabled: !root.test-in-progress;
+                                clicked => { root.test-connection(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "Hotkey & Text";
+                ScrollView {
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 12px;
+
+                        GroupBox {
+                            title: "Direct Linux evdev Push-to-Talk";
+                            VerticalBox {
+                                spacing: 8px;
+                                CheckBox {
+                                    text: "Enable Direct Hardware Hotkey (Linux evdev Push-to-Talk)";
+                                    checked <=> root.evdev-enabled;
+                                }
+
+                                if root.evdev-enabled: VerticalBox {
+                                    spacing: 6px;
+                                    Text { text: "Hardware Keycode Identifier:"; font-size: 12px; }
+                                    LineEdit {
+                                        text <=> root.evdev-key;
+                                        placeholder-text: "KEY_RIGHTALT";
+                                    }
+                                    Text {
+                                        text: "Recommended: KEY_RIGHTALT (Right Alt), KEY_RIGHTCTRL, KEY_CAPSLOCK";
+                                        font-size: 11px;
+                                        color: #888888;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: "PTT vs Toggle Threshold: " + root.ptt-threshold + " ms";
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Slider {
+                                    minimum: 100;
+                                    maximum: 1000;
+                                    value: root.ptt-threshold;
+                                    changed(val) => { root.ptt-threshold = Math.round(val); }
+                                }
+                                Text {
+                                    text: "Holding longer than threshold triggers Push-To-Talk; tapping toggles recording.";
+                                    font-size: 11px;
+                                    color: #888888;
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Text Insertion";
+                            VerticalBox {
+                                spacing: 8px;
+                                Text { text: "Output Mode:"; font-size: 12px; }
+                                ComboBox {
+                                    model: ["Paste (Clipboard + Virtual Ctrl+V)", "Clipboard Only", "Type Keystrokes"];
+                                    current-index <=> root.output-mode-index;
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: "Paste Delay: " + root.paste-delay + " ms";
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Slider {
+                                    minimum: 10;
+                                    maximum: 300;
+                                    value: root.paste-delay;
+                                    changed(val) => { root.paste-delay = Math.round(val); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "Feedback & HUD";
+                ScrollView {
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 12px;
+
+                        GroupBox {
+                            title: "Audio Feedback";
+                            VerticalBox {
+                                spacing: 8px;
+                                CheckBox {
+                                    text: "Enable Acoustic Feedback (In-Memory Earcons)";
+                                    checked <=> root.sound-enabled;
+                                }
+
+                                if root.sound-enabled: VerticalBox {
+                                    spacing: 6px;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Text {
+                                            text: "Volume: " + Math.round(root.sound-vol * 100) + "%";
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                        }
+                                        Button {
+                                            text: "Play Test Earcon";
+                                            clicked => { root.test-sound(); }
+                                        }
+                                    }
+                                    Slider {
+                                        minimum: 0.0;
+                                        maximum: 1.0;
+                                        value: root.sound-vol;
+                                        changed(val) => { root.sound-vol = val; }
+                                    }
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Floating HUD & Notifications";
+                            VerticalBox {
+                                spacing: 8px;
+                                CheckBox {
+                                    text: "Show Desktop Notification Toasts (libnotify)";
+                                    checked <=> root.notifications-enabled;
+                                }
+
+                                CheckBox {
+                                    text: "Show Floating On-Screen HUD Overlay";
+                                    checked <=> root.hud-enabled;
+                                }
+
+                                if root.hud-enabled: VerticalBox {
+                                    spacing: 6px;
+                                    Text { text: "HUD Screen Position:"; font-size: 12px; }
+                                    ComboBox {
+                                        model: ["Bottom Center", "Top Center", "Bottom Right", "Top Right"];
+                                        current-index <=> root.hud-position-index;
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        Button {
+                                            text: "Preview HUD Overlay";
+                                            clicked => { root.preview-hud(); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "VAD & Formatting";
+                ScrollView {
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 12px;
+
+                        GroupBox {
+                            title: "Voice Activity Detection (Auto-Stop)";
+                            VerticalBox {
+                                spacing: 8px;
+                                CheckBox {
+                                    text: "Enable Voice Activity Detection (Stops when you finish speaking)";
+                                    checked <=> root.vad-enabled;
+                                }
+
+                                if root.vad-enabled: VerticalBox {
+                                    spacing: 6px;
+                                    Text {
+                                        text: "Silence Timeout: " + root.vad-silence-timeout + " ms";
+                                        font-size: 12px;
+                                    }
+                                    Slider {
+                                        minimum: 500;
+                                        maximum: 4000;
+                                        value: root.vad-silence-timeout;
+                                        changed(val) => { root.vad-silence-timeout = Math.round(val); }
+                                    }
+
+                                    Text {
+                                        text: "Energy Sensitivity Threshold: " + Math.round(root.vad-threshold * 1000) / 1000;
+                                        font-size: 12px;
+                                    }
+                                    Slider {
+                                        minimum: 0.005;
+                                        maximum: 0.050;
+                                        value: root.vad-threshold;
+                                        changed(val) => { root.vad-threshold = val; }
+                                    }
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Text Formatting";
+                            VerticalBox {
+                                spacing: 8px;
+                                Text { text: "Formatting Mode:"; font-size: 12px; }
+                                ComboBox {
+                                    model: ["Standard (Normal Sentence)", "snake_case", "camelCase", "kebab-case", "raw (Unmodified)"];
+                                    current-index <=> root.formatting-mode-index;
+                                }
+
+                                CheckBox {
+                                    text: "Append trailing space after pasted text";
+                                    checked <=> root.trailing-space;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "Vocabulary";
+                ScrollView {
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 10px;
+
+                        Text {
+                            text: "Custom Vocabulary Biasing:";
+                            font-size: 13px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "These words and phrases are prioritized during Whisper decoding:";
+                            font-size: 11px;
+                            color: #888888;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            LineEdit {
+                                text <=> root.new-word-text;
+                                placeholder-text: "Add new word or technical term...";
+                                horizontal-stretch: 1;
+                                accepted => {
+                                    if (root.new-word-text != "") {
+                                        root.add-word(root.new-word-text);
+                                        root.new-word-text = "";
+                                    }
+                                }
+                            }
+                            Button {
+                                text: "Add Word";
+                                clicked => {
+                                    if (root.new-word-text != "") {
+                                        root.add-word(root.new-word-text);
+                                        root.new-word-text = "";
+                                    }
+                                }
+                            }
+                        }
+
+                        VerticalBox {
+                            spacing: 4px;
+                            for word[idx] in root.vocab-words: HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: word;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                    font-size: 12px;
+                                }
+                                Button {
+                                    text: "✕";
+                                    clicked => { root.remove-word(idx); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Status Banner
+        if root.status-text != "": Rectangle {
+            height: 36px;
+            background: root.status-is-error ? #3b1818 : #183b24;
+            border-color: root.status-is-error ? #e53e3e : #38a169;
+            border-width: 1px;
+            border-radius: 4px;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                Text {
+                    text: root.status-text;
+                    color: root.status-is-error ? #feb2b2 : #9ae6b4;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Footer Actions
+        HorizontalLayout {
+            spacing: 12px;
+
+            Button {
+                text: "Reset to Defaults";
+                clicked => { root.reset-defaults(); }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Button {
+                text: "Save & Apply";
+                primary: true;
+                clicked => { root.save-and-apply(); }
+            }
+        }
+    }
+}

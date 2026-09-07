@@ -1,0 +1,41 @@
+[package]
+name = "openwhisper"
+version = "0.1.0"
+edition = "2024"
+
+authors = ["OpenWhisper Contributors"]
+description = "A cross-platform speech-to-text assistant powered by Whisper and local OpenVINO / OpenAI-compatible endpoints."
+
+[dependencies]
+# Audio recording and encoding
+cpal = "0.15"
+hound = "3.5"
+
+# Networking & Async
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", features = ["multipart", "json"] }
+
+# Serialization & Config
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+directories = "6.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Clipboard & Desktop integration
+arboard = "3.4"
+notify-rust = "4.11"
+
+# Logging & Errors
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Linux / Wayland D-Bus portal & virtual input
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.5", features = ["tokio"] }
+evdev = "0.12"

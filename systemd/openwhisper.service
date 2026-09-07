@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenWhisper Speech-to-Text Assistant
+After=pipewire.service sound.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/openwhisper daemon
+Restart=on-failure
+RestartSec=3
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target

@@ -244,6 +244,15 @@ impl eframe::App for ConfigApp {
                         ui.label("PTT vs Toggle Hold Threshold (ms):");
                         ui.add(egui::Slider::new(&mut self.config.ptt_threshold_ms, 100..=1000).text("ms"));
                     });
+
+                    ui.checkbox(&mut self.config.evdev_hotkey_enabled, "Enable Direct Hardware Hotkey (Linux evdev Push-to-Talk)");
+                    if self.config.evdev_hotkey_enabled {
+                        ui.horizontal(|ui| {
+                            ui.label("Hardware Key Identifier:");
+                            ui.text_edit_singleline(&mut self.config.evdev_hotkey);
+                            ui.label("(e.g. KEY_HELP for Fn+F9, KEY_MICMUTE, KEY_F20)");
+                        });
+                    }
                 });
 
                 ui.add_space(6.0);

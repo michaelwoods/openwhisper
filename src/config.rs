@@ -86,6 +86,21 @@ pub struct Config {
 
     #[serde(default = "default_hud_position")]
     pub hud_position: HudPosition,
+
+    #[serde(
+        default = "default_true",
+        alias = "enable_evdev",
+        alias = "evdev_enabled",
+        alias = "hardware_hotkey_enabled"
+    )]
+    pub evdev_hotkey_enabled: bool,
+
+    #[serde(
+        default = "default_evdev_hotkey",
+        alias = "hotkey",
+        alias = "evdev_key"
+    )]
+    pub evdev_hotkey: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +191,36 @@ fn default_socket_path() -> String {
     }
 }
 
+fn default_evdev_hotkey() -> String {
+    "KEY_HELP".to_string()
+}
+
+#[cfg(target_os = "linux")]
+pub fn parse_evdev_key(name: &str) -> Option<evdev::Key> {
+    let trimmed = name.trim();
+    if let Ok(code) = trimmed.parse::<u16>() {
+        return Some(evdev::Key::new(code));
+    }
+
+    let upper = trimmed.to_uppercase();
+    let search = if upper.starts_with("KEY_") {
+        upper
+    } else {
+        format!("KEY_{upper}")
+    };
+
+    // Scan all valid evdev keycodes
+    for code in 0..768u16 {
+        let key = evdev::Key::new(code);
+        let debug_name = format!("{:?}", key);
+        if debug_name == search {
+            return Some(key);
+        }
+    }
+
+    None
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -201,6 +246,8 @@ impl Default for Config {
             socket_path: default_socket_path(),
             hud_enabled: default_true(),
             hud_position: default_hud_position(),
+            evdev_hotkey_enabled: default_true(),
+            evdev_hotkey: default_evdev_hotkey(),
         }
     }
 }
@@ -391,5 +438,31 @@ mod tests {
         let parsed2: Config = toml::from_str(toml_data2).expect("Failed to parse aliases");
         assert!(parsed2.show_notifications);
         assert!(parsed2.hud_enabled);
+    }
+
+    #[test]
+    fn test_evdev_config_and_key_parsing() {
+        let default_cfg = Config::default();
+        assert!(default_cfg.evdev_hotkey_enabled);
+        assert_eq!(default_cfg.evdev_hotkey, "KEY_HELP");
+
+        let toml_data = r#"
+            evdev_hotkey_enabled = false
+            evdev_hotkey = "KEY_MICMUTE"
+        "#;
+        let parsed: Config = toml::from_str(toml_data).expect("Failed to parse evdev config");
+        assert!(!parsed.evdev_hotkey_enabled);
+        assert_eq!(parsed.evdev_hotkey, "KEY_MICMUTE");
+
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(parse_evdev_key("KEY_HELP"), Some(evdev::Key::KEY_HELP));
+            assert_eq!(parse_evdev_key("help"), Some(evdev::Key::KEY_HELP));
+            assert_eq!(parse_evdev_key("Help"), Some(evdev::Key::KEY_HELP));
+            assert_eq!(parse_evdev_key("138"), Some(evdev::Key::KEY_HELP));
+            assert_eq!(parse_evdev_key("KEY_MICMUTE"), Some(evdev::Key::KEY_MICMUTE));
+            assert_eq!(parse_evdev_key("micmute"), Some(evdev::Key::KEY_MICMUTE));
+            assert_eq!(parse_evdev_key("nonexistent_key_12345"), None);
+        }
     }
 }

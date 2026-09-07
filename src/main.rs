@@ -260,9 +260,19 @@ async fn run_daemon(config: Config) -> Result<()> {
         }
     });
 
+    // Spawn Linux evdev Hardware Hotkey Listener (Push-to-Talk)
+    let mut evdev_handle = if active_config.evdev_hotkey_enabled {
+        hotkey::start_evdev_listener(&active_config.evdev_hotkey, cmd_tx.clone())
+    } else {
+        None
+    };
+
     tracing::info!("OpenWhisper daemon ready! Waiting for hotkey / IPC events...");
     println!("OpenWhisper daemon running in background.");
     println!("Trigger via:");
+    if active_config.evdev_hotkey_enabled {
+        println!("  • Hardware hotkey (evdev): {} (Hold for PTT, tap to toggle)", active_config.evdev_hotkey);
+    }
     println!("  • Global shortcut (if configured in KDE/portal)");
     println!("  • CLI: `openwhisper toggle`");
     println!("  • CLI: `openwhisper ptt-down` (press) & `openwhisper ptt-up` (release)");
@@ -299,6 +309,19 @@ async fn run_daemon(config: Config) -> Result<()> {
                             eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
                             hud_ctrl.set_enabled(new_cfg.hud_enabled);
                             hud_ctrl.set_position(new_cfg.hud_position);
+
+                            // Reload evdev hardware listener if hotkey settings changed
+                            if new_cfg.evdev_hotkey_enabled != active_config.evdev_hotkey_enabled
+                                || new_cfg.evdev_hotkey != active_config.evdev_hotkey
+                            {
+                                if let Some(h) = evdev_handle.take() {
+                                    h.stop();
+                                }
+                                if new_cfg.evdev_hotkey_enabled {
+                                    evdev_handle = hotkey::start_evdev_listener(&new_cfg.evdev_hotkey, cmd_tx.clone());
+                                }
+                            }
+
                             active_config = new_cfg;
                             tracing::info!("All daemon components updated with reloaded config.");
                         }

@@ -84,3 +84,62 @@ pub enum Commands {
     TestHotkey,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_default_no_subcommand() {
+        let cli = Cli::try_parse_from(["openwhisper"]).unwrap();
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn test_cli_simple_subcommands() {
+        let toggle = Cli::try_parse_from(["openwhisper", "toggle"]).unwrap();
+        assert!(matches!(toggle.command, Some(Commands::Toggle)));
+
+        let status = Cli::try_parse_from(["openwhisper", "status"]).unwrap();
+        assert!(matches!(status.command, Some(Commands::Status)));
+
+        let cancel = Cli::try_parse_from(["openwhisper", "cancel"]).unwrap();
+        assert!(matches!(cancel.command, Some(Commands::Cancel)));
+    }
+
+    #[test]
+    fn test_cli_aliases() {
+        let gui = Cli::try_parse_from(["openwhisper", "gui"]).unwrap();
+        assert!(matches!(gui.command, Some(Commands::ConfigGui)));
+
+        let settings = Cli::try_parse_from(["openwhisper", "settings"]).unwrap();
+        assert!(matches!(settings.command, Some(Commands::ConfigGui)));
+
+        let reload = Cli::try_parse_from(["openwhisper", "reload-config"]).unwrap();
+        assert!(matches!(reload.command, Some(Commands::Reload)));
+
+        let sniff = Cli::try_parse_from(["openwhisper", "sniff-keys"]).unwrap();
+        assert!(matches!(sniff.command, Some(Commands::TestHotkey)));
+    }
+
+    #[test]
+    fn test_cli_record_arguments() {
+        let rec = Cli::try_parse_from(["openwhisper", "record", "--duration", "5", "--no-paste"]).unwrap();
+        match rec.command {
+            Some(Commands::Record { duration, no_paste }) => {
+                assert_eq!(duration, Some(5));
+                assert!(no_paste);
+            }
+            _ => panic!("Expected Commands::Record"),
+        }
+    }
+
+    #[test]
+    fn test_cli_hud_demo_once() {
+        let hud = Cli::try_parse_from(["openwhisper", "hud-demo", "--once"]).unwrap();
+        match hud.command {
+            Some(Commands::HudDemo { once }) => assert!(once),
+            _ => panic!("Expected Commands::HudDemo"),
+        }
+    }
+}
+

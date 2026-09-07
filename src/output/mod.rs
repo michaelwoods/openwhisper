@@ -88,3 +88,39 @@ impl OutputManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_output_manager_lifecycle_and_config() {
+        let mut cfg = Config::default();
+        cfg.output_mode = OutputMode::Paste;
+        cfg.paste_delay_ms = 45;
+        cfg.restore_clipboard = true;
+
+        let mut manager = OutputManager::new(&cfg);
+        assert_eq!(manager.mode, OutputMode::Paste);
+        assert_eq!(manager.paste_delay_ms, 45);
+        assert!(manager.restore_clipboard);
+
+        cfg.output_mode = OutputMode::Type;
+        cfg.paste_delay_ms = 100;
+        cfg.restore_clipboard = false;
+
+        manager.update_config(&cfg);
+        assert_eq!(manager.mode, OutputMode::Type);
+        assert_eq!(manager.paste_delay_ms, 100);
+        assert!(!manager.restore_clipboard);
+    }
+
+    #[test]
+    fn test_output_empty_string_noop() {
+        let cfg = Config::default();
+        let mut manager = OutputManager::new(&cfg);
+
+        assert!(manager.output_text("").is_ok());
+        assert!(manager.output_text("   \n\t  ").is_ok());
+    }
+}

@@ -285,3 +285,41 @@ pub fn save_recording_to_dir(dir: &std::path::Path, wav_bytes: &[u8], transcript
     tracing::info!("Saved audio recording and transcript to {:?}", wav_path);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_audio_recorder_constructor() {
+        let rec1 = AudioRecorder::new(None);
+        assert!(rec1.device_name.is_none());
+
+        let rec2 = AudioRecorder::new(Some("usb-mic".into()));
+        assert_eq!(rec2.device_name.as_deref(), Some("usb-mic"));
+    }
+
+    #[test]
+    fn test_save_recording_to_dir() {
+        let tmp_dir = std::env::temp_dir().join(format!("openwhisper_test_save_{}", std::process::id()));
+        let wav_data = b"RIFFFAKEWAVDATA";
+        let transcript = "Hello world transcription";
+
+        let res = save_recording_to_dir(&tmp_dir, wav_data, transcript);
+        assert!(res.is_ok());
+
+        let entries: Vec<_> = std::fs::read_dir(&tmp_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(entries.len(), 2);
+
+        let wav_file = entries.iter().find(|p| p.extension().map_or(false, |ext| ext == "wav")).unwrap();
+        let txt_file = entries.iter().find(|p| p.extension().map_or(false, |ext| ext == "txt")).unwrap();
+
+        assert_eq!(std::fs::read(wav_file).unwrap(), wav_data);
+        assert_eq!(std::fs::read_to_string(txt_file).unwrap(), transcript);
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+}

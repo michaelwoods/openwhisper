@@ -273,11 +273,7 @@ impl eframe::App for HudApp {
                     Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * alpha) as u8),
                 );
 
-                let error_trunc = if message.len() > 32 {
-                    format!("{}...", &message[..30])
-                } else {
-                    message
-                };
+                let error_trunc = crate::notification::safe_truncate_chars(&message, 30);
 
                 painter.text(
                     Pos2::new(rect.min.x + 32.0, center_y),

@@ -37,7 +37,13 @@ pub struct Config {
     #[serde(default = "default_paste_delay_ms")]
     pub paste_delay_ms: u64,
 
-    #[serde(default = "default_true")]
+    #[serde(
+        default = "default_true",
+        alias = "de_notifications",
+        alias = "enable_notifications",
+        alias = "notifications",
+        alias = "notifications_enabled"
+    )]
     pub show_notifications: bool,
 
     #[serde(default = "default_true")]
@@ -70,7 +76,12 @@ pub struct Config {
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
 
-    #[serde(default = "default_true")]
+    #[serde(
+        default = "default_true",
+        alias = "enable_hud",
+        alias = "hud",
+        alias = "floating_hud"
+    )]
     pub hud_enabled: bool,
 
     #[serde(default = "default_hud_position")]
@@ -361,5 +372,24 @@ mod tests {
         "#;
         let parsed: Config = toml::from_str(toml_data).expect("Failed to parse trailing space");
         assert!(!parsed.trailing_space);
+    }
+
+    #[test]
+    fn test_notifications_and_hud_aliases() {
+        let toml_data = r#"
+            de_notifications = false
+            enable_hud = false
+        "#;
+        let parsed: Config = toml::from_str(toml_data).expect("Failed to parse aliases");
+        assert!(!parsed.show_notifications);
+        assert!(!parsed.hud_enabled);
+
+        let toml_data2 = r#"
+            notifications = true
+            hud = true
+        "#;
+        let parsed2: Config = toml::from_str(toml_data2).expect("Failed to parse aliases");
+        assert!(parsed2.show_notifications);
+        assert!(parsed2.hud_enabled);
     }
 }

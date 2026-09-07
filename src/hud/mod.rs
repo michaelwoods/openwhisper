@@ -75,11 +75,7 @@ impl HudModel {
     }
 
     pub fn set_completed(&mut self, text: &str) {
-        let preview = if text.len() > 38 {
-            format!("{}...", &text[..35].trim_end())
-        } else {
-            text.trim().to_string()
-        };
+        let preview = crate::notification::safe_truncate_chars(text, 35);
 
         self.state = HudState::Completed {
             text_preview: preview,

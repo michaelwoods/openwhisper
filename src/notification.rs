@@ -50,11 +50,7 @@ impl NotificationManager {
         if !self.enabled {
             return;
         }
-        let preview = if text.len() > 100 {
-            format!("{}...", &text[..100])
-        } else {
-            text.to_string()
-        };
+        let preview = safe_truncate_chars(text, 100);
 
         std::thread::spawn(move || {
             let _ = Notification::new()
@@ -82,6 +78,15 @@ impl NotificationManager {
     }
 }
 
+pub fn safe_truncate_chars(s: &str, max_chars: usize) -> String {
+    let mut char_indices = s.char_indices();
+    if let Some((idx, _)) = char_indices.nth(max_chars) {
+        format!("{}...", s[..idx].trim_end())
+    } else {
+        s.trim().to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +97,24 @@ mod tests {
         assert!(mgr.is_enabled());
         mgr.set_enabled(false);
         assert!(!mgr.is_enabled());
+    }
+
+    #[test]
+    fn test_safe_truncate_chars_short() {
+        assert_eq!(safe_truncate_chars("Short text", 20), "Short text");
+    }
+
+    #[test]
+    fn test_safe_truncate_chars_long() {
+        let long_str = "This is a longer string that exceeds the max characters";
+        assert_eq!(safe_truncate_chars(long_str, 10), "This is a...");
+    }
+
+    #[test]
+    fn test_safe_truncate_multibyte_utf8() {
+        // Multi-byte Unicode characters (e.g. 🦀 is 4 bytes)
+        let s = "🦀 Rust is awesome 🚀";
+        // Taking 3 chars: '🦀', ' ', 'R'
+        assert_eq!(safe_truncate_chars(s, 3), "🦀 R...");
     }
 }

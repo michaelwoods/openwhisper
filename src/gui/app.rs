@@ -263,14 +263,14 @@ impl eframe::App for ConfigApp {
                         });
                     }
 
-                    ui.checkbox(&mut self.config.show_notifications, "Desktop Notifications (via Desktop Notification Service)");
+                    ui.checkbox(&mut self.config.show_notifications, "Enable Desktop Environment (DE) Notifications (Toast popups)");
                 });
 
                 ui.add_space(6.0);
 
                 // Section: Floating Status Overlay (HUD)
                 ui.collapsing("🖥️ Floating Status Overlay (HUD)", |ui| {
-                    ui.checkbox(&mut self.config.hud_enabled, "Enable Floating HUD Overlay");
+                    ui.checkbox(&mut self.config.hud_enabled, "Enable Floating HUD Overlay (Translucent Pill)");
 
                     if self.config.hud_enabled {
                         ui.horizontal(|ui| {

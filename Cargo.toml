@@ -14,7 +14,7 @@ hound = "3.5"
 # Networking & Async
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
-reqwest = { version = "0.12", features = ["multipart", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "json", "rustls-tls"] }
 
 # Serialization & Config
 serde = { version = "1.0", features = ["derive"] }
@@ -35,7 +35,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 thiserror = "2.0"
 
-# Linux / Wayland D-Bus portal & virtual input
+# GUI Configuration Panel
+eframe = { version = "0.35.0", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+
+# Linux / Wayland D-Bus portal & virtual input & system tray
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.5", features = ["tokio"] }
 evdev = "0.12"
+ksni = "0.3.6"
+

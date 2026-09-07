@@ -59,4 +59,12 @@ pub enum Commands {
 
     /// Initialize default ~/.config/openwhisper/config.toml
     InitConfig,
+
+    /// Open native graphical configuration panel
+    #[command(alias = "gui", alias = "settings")]
+    ConfigGui,
+
+    /// Run automated setup: install binary, icons, desktop entries, and systemd service
+    Setup,
 }
+

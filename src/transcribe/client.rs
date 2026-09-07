@@ -4,6 +4,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
+use super::formatting::{build_whisper_prompt, format_transcription, FormattingMode};
 use crate::config::Config;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,7 @@ pub struct TranscriptionClient {
     prompt: Option<String>,
     temperature: Option<f32>,
     api_key: Option<String>,
+    formatting_mode: FormattingMode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,15 +32,28 @@ impl TranscriptionClient {
             .build()
             .unwrap_or_else(|_| Client::new());
 
+        let prompt = build_whisper_prompt(&config.vocabulary, config.prompt.as_deref());
+
         Self {
             client,
             server_url: config.server_url.clone(),
             model: config.model.clone(),
             language: config.language.clone(),
-            prompt: config.prompt.clone(),
+            prompt,
             temperature: config.temperature,
             api_key: config.api_key.clone(),
+            formatting_mode: config.formatting_mode,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn prompt(&self) -> Option<&str> {
+        self.prompt.as_deref()
+    }
+
+    #[allow(dead_code)]
+    pub fn formatting_mode(&self) -> FormattingMode {
+        self.formatting_mode
     }
 
     pub async fn transcribe(&self, wav_bytes: Vec<u8>) -> Result<String> {
@@ -101,20 +116,69 @@ impl TranscriptionClient {
             );
         }
 
-        // Parse JSON response {"text": "..."}
-        if let Ok(res) = serde_json::from_str::<TranscriptionResponse>(&body_text) {
-            if let Some(text) = res.text {
-                return Ok(text.trim().to_string());
-            }
-            if let Some(err) = res.error {
-                bail!("STT API returned error object: {}", err);
-            }
-        }
+        parse_transcription_response(&body_text, self.formatting_mode)
+    }
+}
 
-        // If not standard object, might be raw text or fallback
-        bail!(
-            "Unexpected response format from STT endpoint: {}",
-            body_text
-        );
+/// Parses the JSON response body from an OpenAI-compatible STT endpoint and formats the output.
+pub fn parse_transcription_response(body_text: &str, mode: FormattingMode) -> Result<String> {
+    if let Ok(res) = serde_json::from_str::<TranscriptionResponse>(body_text) {
+        if let Some(text) = res.text {
+            return Ok(format_transcription(&text, mode));
+        }
+        if let Some(err) = res.error {
+            bail!("STT API returned error object: {}", err);
+        }
+    }
+
+    bail!(
+        "Unexpected response format from STT endpoint: {}",
+        body_text
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_valid_response_standard() {
+        let json = r#"{"text": "Hello world from Whisper."}"#;
+        let res = parse_transcription_response(json, FormattingMode::Standard).unwrap();
+        assert_eq!(res, "Hello world from Whisper.");
+    }
+
+    #[test]
+    fn test_parse_valid_response_snake_case() {
+        let json = r#"{"text": "OpenWhisper Dictation Engine"}"#;
+        let res = parse_transcription_response(json, FormattingMode::SnakeCase).unwrap();
+        assert_eq!(res, "openwhisper_dictation_engine");
+    }
+
+    #[test]
+    fn test_parse_error_object() {
+        let json = r#"{"error": {"message": "Invalid API key"}}"#;
+        let err = parse_transcription_response(json, FormattingMode::Standard).unwrap_err();
+        assert!(err.to_string().contains("Invalid API key"));
+    }
+
+    #[test]
+    fn test_parse_invalid_json() {
+        let text = "<html>502 Bad Gateway</html>";
+        let err = parse_transcription_response(text, FormattingMode::Standard).unwrap_err();
+        assert!(err.to_string().contains("Unexpected response format"));
+    }
+
+    #[test]
+    fn test_client_prompt_and_formatting_from_config() {
+        let mut config = Config::default();
+        config.prompt = Some("Technical notes".to_string());
+        config.vocabulary = vec!["Wayland".to_string(), "Rust".to_string()];
+        config.formatting_mode = FormattingMode::KebabCase;
+
+        let client = TranscriptionClient::new(&config);
+        assert_eq!(client.formatting_mode(), FormattingMode::KebabCase);
+        assert!(client.prompt().unwrap().contains("Technical notes"));
+        assert!(client.prompt().unwrap().contains("Wayland, Rust"));
     }
 }

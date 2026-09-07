@@ -12,17 +12,31 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - **Push-To-Talk (PTT)**: Press and hold key to speak, release to immediately transcribe and paste.
   - **Toggle Mode**: Brief tap to start recording hands-free, tap again to finish and paste.
   - Configurable hold threshold (default: `350ms`).
-- ✍️ **Immediate Text Injection & Clipboard**:
+- 🖥️ **StatusNotifierItem System Tray**:
+  - Native KDE Plasma / Wayland D-Bus system tray item via `ksni`.
+  - Dynamic state icons: Idle, Recording (pulsing red dot), Transcribing (acoustic orbit), and Error.
+  - Context menu: Instant Toggle Dictation, Open Settings..., and Quit.
+- ⚙️ **Native GUI Configuration Panel (`openwhisper config-gui`)**:
+  - Built with pure-Rust `egui` / `eframe` (Wayland + Glow).
+  - Test server endpoint latency and model connectivity in real time.
+  - Configure audio earcons, volume slider with live audio preview.
+  - Configure Voice Activity Detection (VAD), formatting modes, and custom vocabulary.
+- 🔊 **In-Memory Audio Feedback (Earcons)**:
+  - Mathematical sine-wave PCM synthesis with smooth attack/decay envelopes (zero disk files).
+- 🎙️ **Voice Activity Detection (VAD)**:
+  - Real-time RMS silence gating automatically finishes transcription when you stop speaking.
+- ✍️ **Formatting Modes & Vocabulary Biasing**:
+  - Output formatting modes: `Standard`, `snake_case`, `camelCase`, `kebab-case`, and `Raw`.
+  - Context bias words injected into Whisper prompt.
+- 📋 **Wayland Text Injection & Clipboard**:
   - Automatically copies transcribed text to clipboard (`wl-copy` / `arboard`).
-  - Emits virtual keyboard keystroke (`Ctrl+V`) via `/dev/uinput` to paste directly into whatever input cursor or application is currently active.
+  - Emits virtual keyboard keystroke (`Ctrl+V`) via `/dev/uinput` to paste directly into the active window.
 - 🚀 **Local OpenVINO Model Server Integration**:
-  - Built-in support for OVMS `/v1/audio/transcriptions` and `/v3/audio/transcriptions`.
-  - In-memory 16kHz mono 16-bit WAV encoding via `hound` — zero disk writes for high speed and privacy.
-- 🌐 **Wayland & KDE Plasma 6 Native**:
-  - XDG Desktop Portal `org.freedesktop.portal.GlobalShortcuts` (v2 press & release signals).
-  - Unix domain socket IPC daemon for zero-latency shortcut triggering via KDE custom shortcuts or any window manager (Hyprland, Sway, i3).
-- 🔔 **Desktop Notifications**:
-  - Shows friendly status alerts: `🎙️ Listening...`, `⏳ Transcribing...`, `✍️ Transcribed: ...`.
+  - Built-in support for OVMS `/v1/audio/transcriptions` and any OpenAI-compatible STT endpoint.
+  - In-memory 16kHz mono 16-bit WAV encoding via `hound` — zero disk writes for maximum speed and privacy.
+- 🛠️ **Automated Setup Phase**:
+  - Run `openwhisper setup` or `make install` to build, deploy icons, install `.desktop` entries, and register user systemd units in one step.
+
 
 ---
 
@@ -163,8 +177,11 @@ systemctl --user status openwhisper.service
 | `openwhisper status` | Queries daemon status |
 | `openwhisper record` | One-shot terminal recording (press Enter to stop) |
 | `openwhisper test-ovms` | Tests connectivity and latency to OpenVINO whisper |
+| `openwhisper config-gui` | Launches native graphical settings panel |
+| `openwhisper setup` | Automated setup: installs binary, icons, desktop files, and systemd |
 | `openwhisper list-devices` | Lists available audio input devices (microphones) |
 | `openwhisper init-config` | Initializes `~/.config/openwhisper/config.toml` |
+
 
 ---
 

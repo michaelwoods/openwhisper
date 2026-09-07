@@ -4,68 +4,57 @@ This document details upcoming improvements, architectural additions, and multi-
 
 ---
 
-## 1. Audio Feedback / Earcons
+## 1. Audio Feedback / Earcons [Completed ✅]
 
-### Motivation
-When using Push-To-Talk or hands-free Toggle dictation, visual notifications can be outside the user's peripheral vision. Subtle audio earcons provide immediate confirmation of the recording state.
-
-### Specification
-- **Start Sound**: A gentle, rising two-tone chime (e.g. 440 Hz $\rightarrow$ 880 Hz, 60ms, soft attack/decay envelope) when recording begins.
-- **Stop Sound**: A subtle descending tone (e.g. 660 Hz $\rightarrow$ 440 Hz, 50ms) when recording stops.
-- **Complete Sound**: A short soft confirmation blip (e.g. 1000 Hz, 30ms) when text is pasted.
-- **Error Sound**: A double low buzz (e.g. 220 Hz $\rightarrow$ 180 Hz) if network/transcription fails.
-
-### Implementation Strategy
-- Pure in-memory sound generation (synthesizing sine wave PCM buffers mathematically) so OpenWhisper requires zero external `.wav` asset files.
-- Audio output playback via `cpal` or a lightweight audio sink (`rodio`).
-- Config option in `config.toml`:
-  ```toml
-  sound_feedback = true
-  sound_volume = 0.5
-  ```
+Subtle audio earcons provide immediate confirmation of the recording state:
+- Pure in-memory sound generation synthesizing sine-wave PCM mathematically with smooth attack/decay envelopes (zero disk files).
+- Multi-state sounds: Start recording (rising chime), Stop recording (descending tone), Transcribed (soft confirmation blip), and Error.
+- Configurable via `sound_feedback` and `sound_volume` in `config.toml`.
 
 ---
 
-## 2. Contextual Prompting & Vocabulary Biasing
+## 2. Contextual Prompting & Vocabulary Biasing [Completed ✅]
 
-### Motivation
-Whisper models support an optional `prompt` parameter on `/v1/audio/transcriptions`. This prompt biases the decoder towards specific spelling, technical terminology, and punctuation style.
-
-### Specification
-- Add per-profile or global prompt templates in `config.toml`:
-  ```toml
-  [prompting]
-  # Technical vocabulary biasing
-  vocabulary = ["Rust", "Wayland", "KDE", "OpenVINO", "cpal", "tokio", "uinput", "Fedora"]
-  custom_prompt = "Technical dictation including code terms and proper punctuation."
-  temperature = 0.0
-  ```
-- Support formatting modes:
-  - **Standard**: Natural language with punctuation.
-  - **Code/Identifier**: Auto-converts spoken phrases to `snake_case`, `camelCase`, or `kebab-case`.
-  - **Raw**: Verbatim transcription without automatic periods.
+Whisper prompt biasing and output text transformation:
+- Domain vocabulary biasing: Injects custom terms into the Whisper decoding prompt.
+- Formatting modes:
+  - `Standard`: Natural language with punctuation.
+  - `SnakeCase`: Auto-converts to `snake_case`.
+  - `CamelCase`: Auto-converts to `camelCase`.
+  - `KebabCase`: Auto-converts to `kebab-case`.
+  - `Raw`: Verbatim transcription without automatic punctuation.
 
 ---
 
-## 3. Voice Activity Detection (VAD)
+## 3. Voice Activity Detection (VAD) [Completed ✅]
 
-### Motivation
-Prevent runaway recordings when toggled hands-free if the user speaks and then walks away or pauses for extended periods.
-
-### Specification
-- Integrate a lightweight VAD (such as Silero VAD via ONNX runtime or energy-based threshold gating):
-  ```toml
-  [vad]
-  enabled = true
-  silence_timeout_ms = 1800 # Automatically stop after 1.8s of silence
-  energy_threshold = 0.015
-  ```
-- Real-time sample window checking in `src/audio/recorder.rs` callback.
-- Automatically emits `StopAndTranscribe` when trailing silence exceeds threshold.
+Prevents runaway recordings when toggled hands-free:
+- Real-time RMS silence gating in background monitor thread without disturbing audio capture.
+- Configurable `vad_enabled`, `vad_silence_timeout_ms`, and `vad_energy_threshold`.
+- Automatically triggers `StopAndTranscribe` when trailing silence exceeds timeout.
 
 ---
 
-## 4. Multi-Platform Implementations
+## 4. Desktop Integration: System Tray & Settings GUI [Completed ✅]
+
+Seamless Wayland / KDE Plasma desktop experience:
+- **System Tray**: Implemented via `ksni` (D-Bus StatusNotifierItem). Dynamically updates icons:
+  - Idle (`openwhisper-tray-idle`)
+  - Recording (`openwhisper-tray-recording`)
+  - Transcribing (`openwhisper-tray-transcribing`)
+  - Error (`openwhisper-tray-error`)
+  - Full context menu with left-click toggle, Settings, and Quit.
+- **Graphical Configuration Panel**: Native GUI built with `egui` / `eframe` (`openwhisper config-gui`):
+  - Test server connectivity & latency in real-time.
+  - Live sound feedback volume test.
+  - Vocabulary editor, formatting mode picker, VAD controls.
+- **Automated Setup Phase**:
+  - `openwhisper setup`, `make install`, and `scripts/install.sh` for one-command deployment.
+
+---
+
+## 5. Multi-Platform Implementations
+
 
 ### A. macOS Support
 - **Audio Capture**: `cpal` already supports macOS CoreAudio out of the box.

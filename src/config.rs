@@ -3,6 +3,10 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
+
+use crate::audio::{SoundPlayer, VadConfig};
+use crate::transcribe::FormattingMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -35,6 +39,27 @@ pub struct Config {
 
     #[serde(default = "default_true")]
     pub show_notifications: bool,
+
+    #[serde(default = "default_true")]
+    pub sound_feedback: bool,
+
+    #[serde(default = "default_sound_volume")]
+    pub sound_volume: f32,
+
+    #[serde(default = "default_vocabulary")]
+    pub vocabulary: Vec<String>,
+
+    #[serde(default)]
+    pub formatting_mode: FormattingMode,
+
+    #[serde(default = "default_false")]
+    pub vad_enabled: bool,
+
+    #[serde(default = "default_vad_silence_timeout_ms")]
+    pub vad_silence_timeout_ms: u64,
+
+    #[serde(default = "default_vad_energy_threshold")]
+    pub vad_energy_threshold: f32,
 
     #[serde(default)]
     pub audio_device: Option<String>,
@@ -78,6 +103,35 @@ fn default_true() -> bool {
     true
 }
 
+fn default_false() -> bool {
+    false
+}
+
+fn default_sound_volume() -> f32 {
+    0.5
+}
+
+fn default_vad_silence_timeout_ms() -> u64 {
+    1800
+}
+
+fn default_vad_energy_threshold() -> f32 {
+    0.015
+}
+
+fn default_vocabulary() -> Vec<String> {
+    vec![
+        "Rust".to_string(),
+        "Wayland".to_string(),
+        "KDE".to_string(),
+        "OpenVINO".to_string(),
+        "cpal".to_string(),
+        "tokio".to_string(),
+        "uinput".to_string(),
+        "Fedora".to_string(),
+    ]
+}
+
 fn default_socket_path() -> String {
     if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
         format!("{}/openwhisper.sock", runtime_dir)
@@ -99,6 +153,13 @@ impl Default for Config {
             output_mode: default_output_mode(),
             paste_delay_ms: default_paste_delay_ms(),
             show_notifications: default_true(),
+            sound_feedback: default_true(),
+            sound_volume: default_sound_volume(),
+            vocabulary: default_vocabulary(),
+            formatting_mode: FormattingMode::Standard,
+            vad_enabled: default_false(),
+            vad_silence_timeout_ms: default_vad_silence_timeout_ms(),
+            vad_energy_threshold: default_vad_energy_threshold(),
             audio_device: None,
             socket_path: default_socket_path(),
         }
@@ -149,5 +210,98 @@ impl Config {
         fs::write(&path, content)
             .with_context(|| format!("Failed to write config file to {:?}", path))?;
         Ok(())
+    }
+
+    pub fn sound_player(&self) -> SoundPlayer {
+        SoundPlayer::new(self.sound_feedback, self.sound_volume)
+    }
+
+    pub fn vad_config(&self) -> VadConfig {
+        VadConfig {
+            enabled: self.vad_enabled,
+            silence_timeout: Duration::from_millis(self.vad_silence_timeout_ms),
+            energy_threshold: self.vad_energy_threshold,
+            min_speech_duration: Duration::from_millis(300),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let cfg = Config::default();
+        assert_eq!(cfg.server_url, "http://localhost:8000/v1/audio/transcriptions");
+        assert_eq!(cfg.model, "whisper");
+        assert_eq!(cfg.ptt_threshold_ms, 350);
+        assert_eq!(cfg.output_mode, OutputMode::Paste);
+        assert!(cfg.show_notifications);
+        assert!(cfg.sound_feedback);
+        assert_eq!(cfg.sound_volume, 0.5);
+        assert!(!cfg.vocabulary.is_empty());
+        assert_eq!(cfg.formatting_mode, FormattingMode::Standard);
+        assert!(!cfg.vad_enabled);
+        assert_eq!(cfg.vad_silence_timeout_ms, 1800);
+        assert_eq!(cfg.vad_energy_threshold, 0.015);
+    }
+
+    #[test]
+    fn test_toml_roundtrip() {
+        let mut cfg = Config::default();
+        cfg.server_url = "https://api.groq.com/openai/v1/audio/transcriptions".to_string();
+        cfg.model = "whisper-large-v3".to_string();
+        cfg.formatting_mode = FormattingMode::SnakeCase;
+        cfg.sound_volume = 0.75;
+        cfg.vad_enabled = true;
+
+        let toml_str = toml::to_string_pretty(&cfg).expect("Serialization failed");
+        let parsed: Config = toml::from_str(&toml_str).expect("Deserialization failed");
+
+        assert_eq!(parsed.server_url, cfg.server_url);
+        assert_eq!(parsed.model, cfg.model);
+        assert_eq!(parsed.formatting_mode, FormattingMode::SnakeCase);
+        assert_eq!(parsed.sound_volume, 0.75);
+        assert!(parsed.vad_enabled);
+    }
+
+    #[test]
+    fn test_toml_partial_parsing() {
+        let partial = r#"
+            server_url = "http://127.0.0.1:9000/v1/audio/transcriptions"
+            formatting_mode = "camel_case"
+            vad_enabled = true
+        "#;
+        let parsed: Config = toml::from_str(partial).expect("Partial parsing failed");
+        assert_eq!(parsed.server_url, "http://127.0.0.1:9000/v1/audio/transcriptions");
+        assert_eq!(parsed.model, "whisper"); // default
+        assert_eq!(parsed.formatting_mode, FormattingMode::CamelCase);
+        assert!(parsed.vad_enabled);
+        assert_eq!(parsed.ptt_threshold_ms, 350); // default
+        assert!(parsed.sound_feedback); // default
+    }
+
+    #[test]
+    fn test_sound_player_helper() {
+        let mut cfg = Config::default();
+        cfg.sound_feedback = true;
+        cfg.sound_volume = 0.4;
+        let player = cfg.sound_player();
+        assert!(player.is_enabled());
+        assert_eq!(player.volume(), 0.4);
+    }
+
+    #[test]
+    fn test_vad_config_helper() {
+        let mut cfg = Config::default();
+        cfg.vad_enabled = true;
+        cfg.vad_silence_timeout_ms = 2500;
+        cfg.vad_energy_threshold = 0.03;
+
+        let vad_cfg = cfg.vad_config();
+        assert!(vad_cfg.enabled);
+        assert_eq!(vad_cfg.silence_timeout, Duration::from_millis(2500));
+        assert_eq!(vad_cfg.energy_threshold, 0.03);
     }
 }

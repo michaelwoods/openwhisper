@@ -164,6 +164,35 @@ impl ActiveRecording {
         self.started_at.elapsed()
     }
 
+    #[allow(dead_code)]
+    pub fn is_active(&self) -> bool {
+        self.is_recording.load(Ordering::Relaxed)
+    }
+
+    pub fn sample_buffer(&self) -> Arc<Mutex<Vec<f32>>> {
+        Arc::clone(&self.samples)
+    }
+
+    pub fn is_recording_handle(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.is_recording)
+    }
+
+    /// Copies samples recorded after index `start` and returns the new samples and current total sample length.
+    #[allow(dead_code)]
+    pub fn copy_samples_from(&self, start: usize) -> (Vec<f32>, usize) {
+        if let Ok(guard) = self.samples.lock() {
+            let total = guard.len();
+            if start < total {
+                let slice = guard[start..].to_vec();
+                (slice, total)
+            } else {
+                (Vec::new(), total)
+            }
+        } else {
+            (Vec::new(), start)
+        }
+    }
+
     /// Stops recording and encodes the captured audio into standard 16kHz mono WAV bytes.
     pub fn stop(self) -> Result<Vec<u8>> {
         self.is_recording.store(false, Ordering::SeqCst);

@@ -58,16 +58,7 @@ impl IpcServer {
                             if n > 0 {
                                 if let Ok(cmd_str) = std::str::from_utf8(&buf[..n]) {
                                     let cmd_trim = cmd_str.trim();
-                                    let cmd: Option<IpcCommand> = serde_json::from_str(cmd_trim)
-                                        .ok()
-                                        .or_else(|| match cmd_trim {
-                                            "toggle" => Some(IpcCommand::Toggle),
-                                            "ptt-down" | "down" | "press" => Some(IpcCommand::PttDown),
-                                            "ptt-up" | "up" | "release" => Some(IpcCommand::PttUp),
-                                            "cancel" => Some(IpcCommand::Cancel),
-                                            "status" => Some(IpcCommand::Status),
-                                            _ => None,
-                                        });
+                                    let cmd = parse_ipc_command(cmd_str);
 
                                     if let Some(c) = cmd {
                                         let _ = cmd_tx.send(c).await;
@@ -100,6 +91,19 @@ impl IpcServer {
     }
 }
 
+/// Parses an incoming IPC command string either from JSON or from plain-text alias.
+pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
+    let cmd_trim = input.trim();
+    serde_json::from_str(cmd_trim).ok().or_else(|| match cmd_trim {
+        "toggle" => Some(IpcCommand::Toggle),
+        "ptt-down" | "down" | "press" => Some(IpcCommand::PttDown),
+        "ptt-up" | "up" | "release" => Some(IpcCommand::PttUp),
+        "cancel" => Some(IpcCommand::Cancel),
+        "status" => Some(IpcCommand::Status),
+        _ => None,
+    })
+}
+
 pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
     let mut stream = UnixStream::connect(socket_path)
         .await
@@ -113,4 +117,41 @@ pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcR
     let response: IpcResponse = serde_json::from_slice(&buf[..n])
         .context("Invalid response from OpenWhisper daemon")?;
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_ipc_command_json() {
+        assert!(matches!(parse_ipc_command(r#""toggle""#), Some(IpcCommand::Toggle)));
+        assert!(matches!(parse_ipc_command(r#""ptt_down""#), Some(IpcCommand::PttDown)));
+        assert!(matches!(parse_ipc_command(r#""ptt_up""#), Some(IpcCommand::PttUp)));
+        assert!(matches!(parse_ipc_command(r#""cancel""#), Some(IpcCommand::Cancel)));
+        assert!(matches!(parse_ipc_command(r#""status""#), Some(IpcCommand::Status)));
+    }
+
+    #[test]
+    fn test_parse_ipc_command_aliases() {
+        assert!(matches!(parse_ipc_command("toggle"), Some(IpcCommand::Toggle)));
+        assert!(matches!(parse_ipc_command("ptt-down"), Some(IpcCommand::PttDown)));
+        assert!(matches!(parse_ipc_command("press"), Some(IpcCommand::PttDown)));
+        assert!(matches!(parse_ipc_command("ptt-up"), Some(IpcCommand::PttUp)));
+        assert!(matches!(parse_ipc_command("release"), Some(IpcCommand::PttUp)));
+        assert!(matches!(parse_ipc_command("cancel"), Some(IpcCommand::Cancel)));
+        assert!(matches!(parse_ipc_command("status"), Some(IpcCommand::Status)));
+        assert!(parse_ipc_command("invalid_xyz").is_none());
+    }
+
+    #[test]
+    fn test_ipc_response_serialization() {
+        let resp = IpcResponse {
+            status: "ok".to_string(),
+            message: "done".to_string(),
+        };
+        let serialized = serde_json::to_string(&resp).unwrap();
+        assert!(serialized.contains(r#""status":"ok""#));
+        assert!(serialized.contains(r#""message":"done""#));
+    }
 }

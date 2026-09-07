@@ -162,4 +162,60 @@ mod tests {
         assert_eq!(engine.on_press(), Action::StopAndTranscribe);
         assert_eq!(engine.current_state(), ModeState::Transcribing);
     }
+
+    #[test]
+    fn test_cancel_recording() {
+        let mut engine = HotkeyEngine::new(200);
+        assert_eq!(engine.on_press(), Action::StartRecording);
+        assert!(engine.is_recording());
+
+        assert_eq!(engine.on_cancel(), Action::CancelRecording);
+        assert_eq!(engine.current_state(), ModeState::Idle);
+        assert!(!engine.is_recording());
+
+        // Second cancel when idle should be None
+        assert_eq!(engine.on_cancel(), Action::None);
+    }
+
+    #[test]
+    fn test_explicit_toggle() {
+        let mut engine = HotkeyEngine::new(200);
+        assert_eq!(engine.on_toggle(), Action::StartRecording);
+        assert_eq!(engine.current_state(), ModeState::ActiveToggle);
+        assert!(engine.is_recording());
+
+        assert_eq!(engine.on_toggle(), Action::StopAndTranscribe);
+        assert_eq!(engine.current_state(), ModeState::Transcribing);
+    }
+
+    #[test]
+    fn test_key_repeat_suppression() {
+        let mut engine = HotkeyEngine::new(300);
+        assert_eq!(engine.on_press(), Action::StartRecording);
+
+        // Repeated presses while holding should produce Action::None
+        assert_eq!(engine.on_press(), Action::None);
+        assert_eq!(engine.on_press(), Action::None);
+        assert_eq!(engine.current_state(), ModeState::HoldingPress);
+    }
+
+    #[test]
+    fn test_transcription_finished_resets_idle() {
+        let mut engine = HotkeyEngine::new(100);
+        engine.on_press();
+        sleep(Duration::from_millis(120));
+        engine.on_release();
+        assert_eq!(engine.current_state(), ModeState::Transcribing);
+
+        engine.on_transcription_finished();
+        assert_eq!(engine.current_state(), ModeState::Idle);
+        assert!(!engine.is_recording());
+    }
+
+    #[test]
+    fn test_release_when_idle() {
+        let mut engine = HotkeyEngine::new(100);
+        assert_eq!(engine.on_release(), Action::None);
+        assert_eq!(engine.current_state(), ModeState::Idle);
+    }
 }

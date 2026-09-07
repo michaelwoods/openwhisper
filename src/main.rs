@@ -20,7 +20,7 @@ use output::OutputManager;
 use std::io::{self, Cursor};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use audio::{AudioRecorder, EarconType, VadDecision, VadDetector};
@@ -149,6 +149,12 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
+        Commands::Reload => {
+            let res = send_ipc_command(&config.socket_path, IpcCommand::ReloadConfig).await?;
+            println!("{}: {}", res.status, res.message);
+            Ok(())
+        }
+
         Commands::Setup => {
             setup::run_setup()?;
             Ok(())
@@ -223,16 +229,17 @@ async fn run_daemon(config: Config) -> Result<()> {
     tracing::info!("Formatting mode: {:?}", config.formatting_mode);
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<IpcCommand>(32);
-    let notifications = Arc::new(NotificationManager::new(config.show_notifications));
-    let sound = Arc::new(config.sound_player());
-    let client = Arc::new(TranscriptionClient::new(&config));
+    let notifications = Arc::new(RwLock::new(NotificationManager::new(config.show_notifications)));
+    let sound = Arc::new(RwLock::new(config.sound_player()));
+    let client = Arc::new(RwLock::new(TranscriptionClient::new(&config)));
     let output_mgr = Arc::new(Mutex::new(OutputManager::new(&config)));
     let engine = Arc::new(Mutex::new(HotkeyEngine::new(config.ptt_threshold_ms)));
     let active_recording: Arc<Mutex<Option<audio::ActiveRecording>>> = Arc::new(Mutex::new(None));
     let recorder = Arc::new(AudioRecorder::new(config.audio_device.clone()));
+    let mut active_config = config;
 
     // Spawn IPC Unix Socket Server
-    let ipc_server = IpcServer::new(config.socket_path.clone(), cmd_tx.clone());
+    let ipc_server = IpcServer::new(active_config.socket_path.clone(), cmd_tx.clone());
     tokio::spawn(async move {
         if let Err(err) = ipc_server.run().await {
             tracing::error!("IPC server error: {err}");
@@ -253,9 +260,10 @@ async fn run_daemon(config: Config) -> Result<()> {
     println!("  • Global shortcut (if configured in KDE/portal)");
     println!("  • CLI: `openwhisper toggle`");
     println!("  • CLI: `openwhisper ptt-down` (press) & `openwhisper ptt-up` (release)");
+    println!("  • CLI: `openwhisper reload` (reloads config without restarting)");
 
     // Initialize StatusNotifierItem System Tray
-    let (tray_ctrl, _) = tray::start_tray_service(config.socket_path.clone()).await;
+    let (tray_ctrl, _) = tray::start_tray_service(active_config.socket_path.clone()).await;
 
     while let Some(cmd) = cmd_rx.recv().await {
         let action = {
@@ -270,6 +278,25 @@ async fn run_daemon(config: Config) -> Result<()> {
                     tracing::info!("Status requested: current state is {:?}", state);
                     Action::None
                 }
+                IpcCommand::ReloadConfig => {
+                    tracing::info!("ReloadConfig IPC command received. Reloading configuration from disk...");
+                    match Config::load() {
+                        Ok(new_cfg) => {
+                            tracing::info!("Successfully reloaded configuration from disk.");
+                            *client.write().await = TranscriptionClient::new(&new_cfg);
+                            *sound.write().await = new_cfg.sound_player();
+                            notifications.write().await.set_enabled(new_cfg.show_notifications);
+                            output_mgr.lock().await.update_config(&new_cfg);
+                            eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
+                            active_config = new_cfg;
+                            tracing::info!("All daemon components updated with reloaded config.");
+                        }
+                        Err(err) => {
+                            tracing::error!("Failed to reload config from disk: {err}");
+                        }
+                    }
+                    Action::None
+                }
             }
         };
 
@@ -277,8 +304,8 @@ async fn run_daemon(config: Config) -> Result<()> {
             Action::StartRecording => {
                 tracing::info!("Action: StartRecording");
                 tray_ctrl.set_state(tray::TrayState::Recording);
-                notifications.recording_started();
-                sound.play(EarconType::RecordingStarted);
+                notifications.read().await.recording_started();
+                sound.read().await.play(EarconType::RecordingStarted);
 
                 match recorder.start_recording() {
                     Ok(rec) => {
@@ -289,9 +316,9 @@ async fn run_daemon(config: Config) -> Result<()> {
                         *guard = Some(rec);
 
                         // If VAD is enabled, spawn background silence monitor
-                        if config.vad_enabled {
+                        if active_config.vad_enabled {
                             let cmd_tx_vad = cmd_tx.clone();
-                            let vad_cfg = config.vad_config();
+                            let vad_cfg = active_config.vad_config();
 
                             tokio::spawn(async move {
                                 let mut detector = VadDetector::new(vad_cfg);
@@ -334,8 +361,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                     Err(err) => {
                         tracing::error!("Failed to start recording: {err}");
                         tray_ctrl.set_state(tray::TrayState::Error);
-                        notifications.error(&format!("Mic error: {err}"));
-                        sound.play(EarconType::Error);
+                        notifications.read().await.error(&format!("Mic error: {err}"));
+                        sound.read().await.play(EarconType::Error);
                         let mut eng = engine.lock().await;
                         eng.on_cancel();
                     }
@@ -345,8 +372,8 @@ async fn run_daemon(config: Config) -> Result<()> {
             Action::StopAndTranscribe => {
                 tracing::info!("Action: StopAndTranscribe");
                 tray_ctrl.set_state(tray::TrayState::Transcribing);
-                notifications.transcribing();
-                sound.play(EarconType::RecordingStopped);
+                notifications.read().await.transcribing();
+                sound.read().await.play(EarconType::RecordingStopped);
 
                 let rec_opt = {
                     let mut guard = active_recording.lock().await;
@@ -366,19 +393,23 @@ async fn run_daemon(config: Config) -> Result<()> {
                         match wav_res {
                             Ok(wav_bytes) => {
                                 let start = Instant::now();
-                                match client_clone.transcribe(wav_bytes).await {
+                                let transcribe_res = {
+                                    let cl = client_clone.read().await.clone();
+                                    cl.transcribe(wav_bytes).await
+                                };
+                                match transcribe_res {
                                     Ok(text) => {
                                         let duration = start.elapsed().as_secs_f32();
                                         tracing::info!("Transcribed in {:.2}s: {:?}", duration, text);
                                         tray_ctrl_clone.set_state(tray::TrayState::Idle);
-                                        notif_clone.transcribed(&text);
-                                        sound_clone.play(EarconType::Transcribed);
+                                        notif_clone.read().await.transcribed(&text);
+                                        sound_clone.read().await.play(EarconType::Transcribed);
 
                                         let mut out = output_mgr_clone.lock().await;
                                         if let Err(err) = out.output_text(&text) {
                                             tracing::error!("Output injection error: {err}");
-                                            notif_clone.error(&format!("Output error: {err}"));
-                                            sound_clone.play(EarconType::Error);
+                                            notif_clone.read().await.error(&format!("Output error: {err}"));
+                                            sound_clone.read().await.play(EarconType::Error);
                                         }
                                     }
                                     Err(err) => {
@@ -389,16 +420,16 @@ async fn run_daemon(config: Config) -> Result<()> {
                                             tokio::time::sleep(Duration::from_secs(3)).await;
                                             reset_ctrl.set_state(tray::TrayState::Idle);
                                         });
-                                        notif_clone.error(&format!("STT failed: {err}"));
-                                        sound_clone.play(EarconType::Error);
+                                        notif_clone.read().await.error(&format!("STT failed: {err}"));
+                                        sound_clone.read().await.play(EarconType::Error);
                                     }
                                 }
                             }
                             Err(err) => {
                                 tracing::error!("Audio stop/encoding error: {err}");
                                 tray_ctrl_clone.set_state(tray::TrayState::Error);
-                                notif_clone.error(&format!("Audio encoding error: {err}"));
-                                sound_clone.play(EarconType::Error);
+                                notif_clone.read().await.error(&format!("Audio encoding error: {err}"));
+                                sound_clone.read().await.play(EarconType::Error);
                             }
                         }
 
@@ -417,8 +448,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                 tray_ctrl.set_state(tray::TrayState::Idle);
                 let mut guard = active_recording.lock().await;
                 *guard = None;
-                notifications.error("Recording cancelled");
-                sound.play(EarconType::Error);
+                notifications.read().await.error("Recording cancelled");
+                sound.read().await.play(EarconType::Error);
             }
 
             Action::None => {}

@@ -9,6 +9,15 @@ impl NotificationManager {
         Self { enabled }
     }
 
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    #[allow(dead_code)]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub fn recording_started(&self) {
         if !self.enabled {
             return;
@@ -70,5 +79,18 @@ impl NotificationManager {
                 .timeout(Timeout::Milliseconds(5000))
                 .show();
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_notification_manager_toggle() {
+        let mut mgr = NotificationManager::new(true);
+        assert!(mgr.is_enabled());
+        mgr.set_enabled(false);
+        assert!(!mgr.is_enabled());
     }
 }

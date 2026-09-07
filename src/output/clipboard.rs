@@ -7,7 +7,7 @@ pub fn set_clipboard(text: &str) -> Result<()> {
     {
         use std::io::Write;
         use std::process::{Command, Stdio};
-        if std::env::var("WAYLAND_DISPLAY").is_ok() || which_cmd("wl-copy") {
+        if std::env::var("WAYLAND_DISPLAY").is_ok() || has_command_in_path("wl-copy") {
             if let Ok(mut child) = Command::new("wl-copy")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
@@ -35,13 +35,29 @@ pub fn set_clipboard(text: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
-fn which_cmd(name: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(name)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+/// Checks if an executable command exists in standard system PATH using Rust stdlib.
+pub fn has_command_in_path(cmd: &str) -> bool {
+    if let Some(path_os) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_os) {
+            let bin_path = dir.join(cmd);
+            if bin_path.is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_has_command_in_path_existing_and_nonexistent() {
+        // Standard unix tools like 'sh' or 'ls' exist in PATH
+        #[cfg(unix)]
+        assert!(has_command_in_path("sh"));
+
+        assert!(!has_command_in_path("non_existent_binary_xyz_12345"));
+    }
 }

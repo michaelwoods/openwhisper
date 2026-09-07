@@ -64,6 +64,10 @@ pub enum Commands {
     #[command(alias = "gui", alias = "settings")]
     ConfigGui,
 
+    /// Reload daemon configuration from config.toml via IPC
+    #[command(alias = "reload-config")]
+    Reload,
+
     /// Run automated setup: install binary, icons, desktop entries, and systemd service
     Setup,
 }

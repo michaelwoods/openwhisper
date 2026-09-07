@@ -136,7 +136,10 @@ fn default_socket_path() -> String {
     if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
         format!("{}/openwhisper.sock", runtime_dir)
     } else {
-        "/tmp/openwhisper.sock".to_string()
+        std::env::temp_dir()
+            .join("openwhisper.sock")
+            .to_string_lossy()
+            .to_string()
     }
 }
 

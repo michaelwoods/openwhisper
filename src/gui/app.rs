@@ -87,30 +87,31 @@ impl ConfigApp {
     fn save_and_apply(&mut self) {
         match self.config.save() {
             Ok(_) => {
-                // Restart or notify daemon via systemctl
+                // Dynamically reload running daemon via IPC
+                let socket_path = self.config.socket_path.clone();
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build();
                 let mut reloaded = false;
-                let uid = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
-                let mut cmd = std::process::Command::new("systemctl");
-                cmd.arg("--user")
-                    .arg("restart")
-                    .arg("openwhisper.service")
-                    .env("XDG_RUNTIME_DIR", format!("/run/user/{}", uid))
-                    .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path=/run/user/{}/bus", uid));
-                if let Ok(output) = cmd.output() {
-                    if output.status.success() {
-                        reloaded = true;
+                if let Ok(rt) = rt {
+                    if let Ok(res) = rt.block_on(crate::hotkey::ipc::send_ipc_command(
+                        &socket_path,
+                        crate::hotkey::ipc::IpcCommand::ReloadConfig,
+                    )) {
+                        if res.status == "ok" {
+                            reloaded = true;
+                        }
                     }
                 }
 
-
                 if reloaded {
                     self.status_message = Some((
-                        "Settings saved to config.toml and openwhisper.service restarted!".into(),
+                        "Settings saved to config.toml and running daemon reloaded live via IPC!".into(),
                         false,
                     ));
                 } else {
                     self.status_message = Some((
-                        "Settings saved to config.toml. (Restart openwhisper daemon to apply)".into(),
+                        "Settings saved to config.toml. (Daemon not running; changes will apply on next startup)".into(),
                         false,
                     ));
                 }

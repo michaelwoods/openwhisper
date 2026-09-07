@@ -22,6 +22,11 @@ impl OutputManager {
         }
     }
 
+    pub fn update_config(&mut self, config: &Config) {
+        self.mode = config.output_mode;
+        self.paste_delay_ms = config.paste_delay_ms;
+    }
+
     pub fn output_text(&mut self, text: &str) -> Result<()> {
         if text.trim().is_empty() {
             return Ok(());

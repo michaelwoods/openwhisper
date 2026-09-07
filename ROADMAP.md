@@ -1,105 +1,78 @@
-# OpenWhisper Improvement Roadmap & Specification
+# OpenWhisper Future Roadmap & Architecture Specification
 
-This document details upcoming improvements, architectural additions, and multi-platform implementations planned for **OpenWhisper**.
-
----
-
-## 1. Audio Feedback / Earcons [Completed ✅]
-
-Subtle audio earcons provide immediate confirmation of the recording state:
-- Pure in-memory sound generation synthesizing sine-wave PCM mathematically with smooth attack/decay envelopes (zero disk files).
-- Multi-state sounds: Start recording (rising chime), Stop recording (descending tone), Transcribed (soft confirmation blip), and Error.
-- Configurable via `sound_feedback` and `sound_volume` in `config.toml`.
+This document details upcoming improvements, architectural additions, and multi-platform implementations planned for future releases of **OpenWhisper**.
 
 ---
 
-## 2. Contextual Prompting & Vocabulary Biasing [Completed ✅]
+## 1. Multi-Platform Backends
 
-Whisper prompt biasing and output text transformation:
-- Domain vocabulary biasing: Injects custom terms into the Whisper decoding prompt.
-- Formatting modes:
-  - `Standard`: Natural language with punctuation.
-  - `SnakeCase`: Auto-converts to `snake_case`.
-  - `CamelCase`: Auto-converts to `camelCase`.
-  - `KebabCase`: Auto-converts to `kebab-case`.
-  - `Raw`: Verbatim transcription without automatic punctuation.
-
----
-
-## 3. Voice Activity Detection (VAD) [Completed ✅]
-
-Prevents runaway recordings when toggled hands-free:
-- Real-time RMS silence gating in background monitor thread without disturbing audio capture.
-- Configurable `vad_enabled`, `vad_silence_timeout_ms`, and `vad_energy_threshold`.
-- Automatically triggers `StopAndTranscribe` when trailing silence exceeds timeout.
-
----
-
-## 4. Desktop Integration: System Tray & Settings GUI [Completed ✅]
-
-Seamless Wayland / KDE Plasma desktop experience:
-- **System Tray**: Implemented via `ksni` (D-Bus StatusNotifierItem). Dynamically updates icons:
-  - Idle (`openwhisper-tray-idle`)
-  - Recording (`openwhisper-tray-recording`)
-  - Transcribing (`openwhisper-tray-transcribing`)
-  - Error (`openwhisper-tray-error`)
-  - Full context menu with left-click toggle, Settings, and Quit.
-- **Graphical Configuration Panel**: Native GUI built with `egui` / `eframe` (`openwhisper config-gui`):
-  - Test server connectivity & latency in real-time.
-  - Live sound feedback volume test.
-  - Vocabulary editor, formatting mode picker, VAD controls.
-- **Automated Setup Phase**:
-  - `openwhisper setup`, `make install`, and `scripts/install.sh` for one-command deployment.
-
----
-
-## 5. Multi-Platform Implementations
-
+While OpenWhisper currently targets Linux on Wayland (Fedora / KDE Plasma 6), the core architecture (in-memory audio processing, Whisper client, dual-mode hotkey engine, VAD, and sound generation) is fully cross-platform. Platform-specific backends are planned as follows:
 
 ### A. macOS Support
-- **Audio Capture**: `cpal` already supports macOS CoreAudio out of the box.
+- **Audio Capture**: Built-in support via `cpal` CoreAudio host.
 - **Global Hotkeys**:
-  - Use `rdev` or a dedicated `CGEventTap` hook to capture global keydown and keyup events for PTT.
-  - Request Accessibility permissions (`AXIsProcessTrustedWithOptions`).
+  - Global keydown and keyup capture for PTT via `CGEventTap` or `rdev`.
+  - Permission management via macOS Accessibility APIs (`AXIsProcessTrustedWithOptions`).
 - **Text Insertion**:
-  - Set clipboard via `arboard` (`NSPasteboard`).
-  - Synthesize `Cmd+V` keystroke using `CGEventCreateKeyboardEvent(NULL, (CGKeyCode)9, true)` (`kVK_ANSI_V`) with `kCGEventFlagMaskCommand`.
+  - Direct clipboard copy via `arboard` (`NSPasteboard`).
+  - Keystroke synthesis for `Cmd+V` via `CGEventCreateKeyboardEvent(NULL, (CGKeyCode)9, true)` (`kVK_ANSI_V`) with `kCGEventFlagMaskCommand`.
+- **System Integration**:
+  - Status bar menu extra via `tray-icon` or native AppKit NSStatusItem.
+  - User session background daemon managed via `~/Library/LaunchAgents/net.local.openwhisper.plist`.
 
 ### B. Windows Support
-- **Audio Capture**: `cpal` supports WASAPI out of the box.
+- **Audio Capture**: Built-in support via `cpal` WASAPI host.
 - **Global Hotkeys**:
   - For Toggle mode: Win32 `RegisterHotKey`.
-  - For PTT mode: Low-level keyboard hook `SetWindowsHookExW(WH_KEYBOARD_LL, ...)` to track precise keydown and keyup timing.
+  - For PTT mode: Low-level keyboard hook via `SetWindowsHookExW(WH_KEYBOARD_LL, ...)` to track keydown and keyup events with high precision.
 - **Text Insertion**:
-  - Set clipboard via `arboard`.
-  - Synthesize `Ctrl+V` using Win32 `SendInput` with `VK_CONTROL` and `'V'`.
-  - Alternatively, inject characters directly using `KEYEVENTF_UNICODE` for instantaneous typing.
+  - Direct clipboard copy via `arboard`.
+  - Keystroke synthesis for `Ctrl+V` via Win32 `SendInput` (`VK_CONTROL` and `0x56`).
+  - Optional direct text insertion using `KEYEVENTF_UNICODE` for instantaneous character streaming.
+- **System Integration**:
+  - System tray icon via Win32 `Shell_NotifyIcon` or `tray-icon`.
+  - Background autostart via Windows Registry Run key or Windows Service.
 
 ### C. iOS Architecture
-- **Audio Engine**: `AVAudioEngine` / `AudioUnit` for audio capture.
-- **Core Library**: Compile `openwhisper-core` as a Rust static library (`.a` / `.xcframework`) exposed via UniFFI or C-FFI.
-- **User Interface**: Swift/SwiftUI app or Custom Keyboard Extension that sends audio to the local network or cloud STT endpoint and inserts text via `textDocumentProxy.insertText()`.
+- **Audio Engine**: `AVAudioEngine` / `AudioUnit` input node.
+- **Core Library**:
+  - Modularize the core pipeline into `openwhisper-core` compiled as a universal static library (`.xcframework`) using UniFFI or C-FFI.
+- **User Interface & Extension**:
+  - Custom Keyboard Extension providing a dictation button inside any iOS app, inserting text directly via `UITextDocumentProxy.insertText()`.
+  - SwiftUI companion application for server configuration, model selection, and prompt management.
 
 ---
 
-## 5. Streaming / Real-Time Dictation
+## 2. Streaming & Real-Time Dictation
 
 ### Motivation
-For long dictation sessions, seeing words appear in real-time reduces perceived latency.
+For lengthy dictation sessions, seeing words appear in real time reduces perceived latency and provides immediate feedback on speech recognition accuracy.
+
+### Architecture & Protocol
+- **Chunked Audio Streaming**:
+  - Stream PCM chunks over WebSocket or chunked HTTP transfer encoding to streaming-capable backends (e.g., OpenVINO Model Server gRPC/WebSocket streaming endpoints, Faster-Whisper live streaming server, or WhisperLive).
+- **Buffer Synchronization**:
+  - Continuous interim transcription tokens are received asynchronously.
+  - Implement delete-and-replace buffer updating:
+    - Track the character length of the last interim token sequence.
+    - Emit backspaces or replacement sequences to rewrite the active draft as Whisper's language model refines word choices based on extended acoustic context.
+  - On release/silence, lock the finalized transcript into the active document.
+
+---
+
+## 3. Minimal Status Overlay / Floating HUD
+
+### Motivation
+In addition to the system tray, a lightweight on-screen indicator provides immediate situational awareness without requiring the user to look at their taskbar or panel.
 
 ### Specification
-- Support chunked streaming audio over HTTP or WebSocket:
-  - If backend supports chunked transcription (or OpenVINO streaming gRPC/WebSocket endpoint), emit text continuously as the user speaks.
-  - On Linux/Wayland, stream characters or delete-and-replace preview text in the active buffer.
-
----
-
-## 6. Minimal Status Overlay / System Tray
-
-### Motivation
-A clean, non-intrusive status indicator showing when OpenWhisper is active:
-- System tray icon in KDE Plasma panel (via StatusNotifierItem / `ksni` or `tray-icon` crate):
-  - ⚪ Grey / Idle: Daemon ready.
-  - 🔴 Red / Blinking: Recording audio.
-  - 🟡 Amber: Transcribing.
-- Optional floating minimalist pill indicator at the bottom of the screen displaying recording time and live audio level meter.
+- **Floating Pill Widget**:
+  - Rendered via a lightweight transparent layer-shell window (Wayland `zwlr_layer_shell_v1`, macOS floating `NSPanel`, or Windows `WS_EX_LAYERED`).
+  - Renders near the bottom-center of the active screen or pinned adjacent to the active text cursor.
+- **Live Visual Metrics**:
+  - **Status Badge**: Clear visual indication of state (Listening, Transcribing, Complete, Error).
+  - **Live Audio Meter**: Smooth real-time RMS audio waveform or level meter indicating mic sensitivity.
+  - **Recording Timer**: Compact elapsed timer showing dictation length.
+- **Auto-Hide & Translucency**:
+  - Automatically fades out smoothly once transcription is pasted.
+  - Click-through input passthrough to avoid intercepting user clicks.

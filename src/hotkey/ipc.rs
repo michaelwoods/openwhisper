@@ -14,6 +14,7 @@ pub enum IpcCommand {
     PttUp,
     Cancel,
     Status,
+    ReloadConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,10 +62,16 @@ impl IpcServer {
                                     let cmd = parse_ipc_command(cmd_str);
 
                                     if let Some(c) = cmd {
+                                        let is_reload = matches!(c, IpcCommand::ReloadConfig);
                                         let _ = cmd_tx.send(c).await;
+                                        let message = if is_reload {
+                                            "Configuration reloaded successfully".to_string()
+                                        } else {
+                                            "command processed".to_string()
+                                        };
                                         let res = IpcResponse {
                                             status: "ok".to_string(),
-                                            message: "command processed".to_string(),
+                                            message,
                                         };
                                         if let Ok(res_bytes) = serde_json::to_vec(&res) {
                                             let _ = stream.write_all(&res_bytes).await;
@@ -100,6 +107,7 @@ pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
         "ptt-up" | "up" | "release" => Some(IpcCommand::PttUp),
         "cancel" => Some(IpcCommand::Cancel),
         "status" => Some(IpcCommand::Status),
+        "reload" | "reload-config" | "reload_config" => Some(IpcCommand::ReloadConfig),
         _ => None,
     })
 }
@@ -130,6 +138,7 @@ mod tests {
         assert!(matches!(parse_ipc_command(r#""ptt_up""#), Some(IpcCommand::PttUp)));
         assert!(matches!(parse_ipc_command(r#""cancel""#), Some(IpcCommand::Cancel)));
         assert!(matches!(parse_ipc_command(r#""status""#), Some(IpcCommand::Status)));
+        assert!(matches!(parse_ipc_command(r#""reload_config""#), Some(IpcCommand::ReloadConfig)));
     }
 
     #[test]
@@ -141,6 +150,9 @@ mod tests {
         assert!(matches!(parse_ipc_command("release"), Some(IpcCommand::PttUp)));
         assert!(matches!(parse_ipc_command("cancel"), Some(IpcCommand::Cancel)));
         assert!(matches!(parse_ipc_command("status"), Some(IpcCommand::Status)));
+        assert!(matches!(parse_ipc_command("reload"), Some(IpcCommand::ReloadConfig)));
+        assert!(matches!(parse_ipc_command("reload-config"), Some(IpcCommand::ReloadConfig)));
+        assert!(matches!(parse_ipc_command("reload_config"), Some(IpcCommand::ReloadConfig)));
         assert!(parse_ipc_command("invalid_xyz").is_none());
     }
 

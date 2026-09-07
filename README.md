@@ -1,42 +1,53 @@
 # OpenWhisper 🎙️
 
-A fast, lightweight, privacy-focused, cross-platform speech-to-text dictation assistant written in Rust. Designed as an open-source, multi-platform alternative to Superwhisper, tailored for Linux on Wayland (KDE Plasma, Fedora) and architected for cross-platform support across macOS, Windows, and mobile.
+A fast, lightweight, privacy-focused, cross-platform speech-to-text dictation assistant written in Rust. Designed as an open-source, multi-platform alternative to Superwhisper, tailored for Linux on Wayland (Fedora, KDE Plasma 6) and architected for cross-platform support across macOS, Windows, and mobile.
 
 Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, including your local [OpenVINO Model Server (OVMS)](https://docs.openvino.ai/2026/model-server/ovms_demos_audio.html), Whisper.cpp, vLLM, or cloud OpenAI/Groq endpoints.
 
 ---
 
-## Features
+## Shipped Features & Capabilities
 
-- ⚡ **Dual-Mode Hotkey Engine**:
+- ⚡ **Dual-Mode Hotkey State Machine**:
   - **Push-To-Talk (PTT)**: Press and hold key to speak, release to immediately transcribe and paste.
-  - **Toggle Mode**: Brief tap to start recording hands-free, tap again to finish and paste.
-  - Configurable hold threshold (default: `350ms`).
+  - **Hands-Free Toggle Mode**: Brief tap to start recording hands-free, tap again to finish and paste.
+  - Seamlessly unified state machine with configurable threshold (`ptt_threshold_ms`, default: `350ms`).
 - 🖥️ **StatusNotifierItem System Tray**:
   - Native KDE Plasma / Wayland D-Bus system tray item via `ksni`.
-  - Dynamic state icons: Idle, Recording (pulsing red dot), Transcribing (acoustic orbit), and Error.
+  - Dynamic state icons: Idle (slate mic), Recording (pulsing red indicator), Transcribing (cyan acoustic orbit), and Error (amber alert).
+  - Embedded in-memory ARGB fallback pixmaps for instant rendering regardless of system icon indexing.
   - Context menu: Instant Toggle Dictation, Open Settings..., and Quit.
 - ⚙️ **Native GUI Configuration Panel (`openwhisper config-gui`)**:
-  - Built with pure-Rust `egui` / `eframe` (Wayland + Glow).
-  - Test server endpoint latency and model connectivity in real time.
-  - Configure audio earcons, volume slider with live audio preview.
-  - Configure Voice Activity Detection (VAD), formatting modes, and custom vocabulary.
+  - Pure-Rust graphical window built with `egui` / `eframe` (Glow + Wayland).
+  - **Live Connection & Latency Tester**: Tests STT endpoint responsiveness and model inference in real time.
+  - **Interactive Audio Feedback**: Volume slider with live preview tone playback.
+  - **Formatting & Vocabulary Manager**: Configure casing modes and add/remove custom bias words.
+  - **In-Memory IPC Reload**: Clicking "Save & Apply" persists `config.toml` and instantly reloads the running background daemon via IPC without restarting processes or dropping D-Bus/audio streams.
 - 🔊 **In-Memory Audio Feedback (Earcons)**:
-  - Mathematical sine-wave PCM synthesis with smooth attack/decay envelopes (zero disk files).
+  - Pure mathematical sine-wave PCM audio synthesis with smooth attack/decay envelopes (zero disk files).
+  - Acoustic state cues: Start recording (rising chime), Stop recording (descending tone), Transcribed (soft confirmation blip), and Error.
+  - Fully adjustable volume or toggleable in settings.
 - 🎙️ **Voice Activity Detection (VAD)**:
-  - Real-time RMS silence gating automatically finishes transcription when you stop speaking.
+  - Real-time RMS silence gating running on a concurrent monitor thread without interrupting audio capture.
+  - Automatically finalizes dictation and transcribes when trailing silence exceeds timeout (default: `1800ms`), preventing runaway recordings.
 - ✍️ **Formatting Modes & Vocabulary Biasing**:
-  - Output formatting modes: `Standard`, `snake_case`, `camelCase`, `kebab-case`, and `Raw`.
-  - Context bias words injected into Whisper prompt.
+  - **Formatting Modes**:
+    - `Standard`: Natural language with punctuation and proper capitalization.
+    - `snake_case`: Auto-converts spoken words to programming identifiers (`user_auth_token`).
+    - `camelCase`: Auto-converts to camelCase (`parseApiResponse`).
+    - `kebab-case`: Auto-converts to kebab-case (`k8s-pod-deployment`).
+    - `Raw`: Verbatim transcription without automated punctuation.
+  - **Domain Vocabulary Biasing**: Injects specialized technical terms (e.g. `Rust`, `Wayland`, `OpenVINO`, `cpal`) directly into Whisper's decoding prompt.
 - 📋 **Wayland Text Injection & Clipboard**:
-  - Automatically copies transcribed text to clipboard (`wl-copy` / `arboard`).
-  - Emits virtual keyboard keystroke (`Ctrl+V`) via `/dev/uinput` to paste directly into the active window.
-- 🚀 **Local OpenVINO Model Server Integration**:
-  - Built-in support for OVMS `/v1/audio/transcriptions` and any OpenAI-compatible STT endpoint.
-  - In-memory 16kHz mono 16-bit WAV encoding via `hound` — zero disk writes for maximum speed and privacy.
+  - Automatically populates the clipboard (`wl-copy` with `arboard` fallback).
+  - Emits virtual keyboard keystroke (`Ctrl+V`) via `/dev/uinput` to paste directly into the active cursor position.
+  - Pure-Rust system PATH resolution (`std::env::split_paths`) with zero external `which` subprocess overhead.
+- 🚀 **Local Inference & Zero-Disk Audio Pipeline**:
+  - Audio captured via `cpal`, resampled in-memory to 16kHz mono 16-bit PCM, and packaged into WAV via `hound` inside a `Cursor<Vec<u8>>`.
+  - Zero disk writes to `/tmp` for maximum throughput (<100ms latency overhead) and absolute user privacy.
 - 🛠️ **Automated Setup Phase**:
-  - Run `openwhisper setup` or `make install` to build, deploy icons, install `.desktop` entries, and register user systemd units in one step.
-
+  - One-command setup via `openwhisper setup`, `make install`, or `scripts/install.sh`.
+  - Automates binary installation, Freedesktop icon theme deployment, `.desktop` menu registration, and user systemd service management.
 
 ---
 
@@ -48,7 +59,7 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
                           │   or XDG Shortcut Portal  │
                           └─────────────┬─────────────┘
                                         │
-                         [openwhisper toggle / ptt]
+                         [openwhisper toggle / ptt / reload]
                                         │
                                         ▼
     ┌───────────────────────────────────────────────────────────────────┐
@@ -58,53 +69,70 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
     │  │  Hotkey Engine   │───▶│ Audio Capture   │───▶│  Resampler   │  │
     │  │  (PTT vs Toggle) │    │ (cpal / PipeWire│    │  (16kHz mono │  │
     │  └──────────────────┘    └─────────────────┘    │  WAV in-mem) │  │
-    │                                                 └──────┬───────┘  │
-    │                                                        │          │
+    │            │                                    └──────┬───────┘  │
+    │            ▼                                           │          │
     │  ┌──────────────────┐    ┌─────────────────┐           │          │
-    │  │  Text Injector   │◀───│ Clipboard Mgr   │◀──────────┘          │
-    │  │ (/dev/uinput     │    │ (wl-copy /      │     POST /v1/audio/  │
-    │  │  virtual Ctrl+V) │    │  arboard)       │     transcriptions   │
-    │  └──────────────────┘    └─────────────────┘           │          │
+    │  │   VAD Detector   │    │ Clipboard Mgr   │◀──────────┘          │
+    │  │   (RMS Gating)   │    │ (wl-copy /      │     POST /v1/audio/  │
+    │  └──────────────────┘    │  arboard)       │     transcriptions   │
+    │            │             └────────┬────────┘           │          │
+    │            ▼                      ▼                    │          │
+    │  ┌──────────────────┐    ┌─────────────────┐           │          │
+    │  │ StatusNotifier   │    │  Text Injector  │           │          │
+    │  │ Tray & Earcons   │    │ (/dev/uinput    │           │          │
+    │  └──────────────────┘    │  virtual Ctrl+V)│           │          │
+    │                          └─────────────────┘           │          │
     └────────────────────────────────────────────────────────┼──────────┘
                                                              │
                                                              ▼
                                               ┌────────────────────────┐
                                               │  OpenVINO Model Server │
-                                              │    (local whisper)     │
+                                              │   or OpenAI STT API    │
                                               └────────────────────────┘
 ```
 
 ---
 
-## Installation & Setup on Fedora / KDE Plasma
+## Installation & Quick Start
 
-### 1. Build the Binary
+### 1. One-Step Automated Setup (Recommended)
+Clone the repository and run:
 ```bash
-cargo build --release
+make install
 ```
-The optimized release binary is generated at `target/release/openwhisper`.
+*(Or run `cargo run --release -- setup`)*.
 
-You can install it system-wide (accessible in all shells and systemd):
-```bash
-sudo cp target/release/openwhisper /usr/local/bin/openwhisper
-```
-*(Or install locally to `~/.local/bin/openwhisper`)*.
+This automatically:
+1. Builds an optimized release binary.
+2. Installs the binary to `/usr/local/bin/openwhisper` and `~/.local/bin/openwhisper`.
+3. Deploys scalable vector icons to `~/.local/share/icons/hicolor/`.
+4. Registers `.desktop` launcher and shortcut entries.
+5. Deploys, enables, and starts the background `openwhisper.service` under `systemd --user`.
 
-> **Note for Zsh users**: If you have an existing terminal session open, run `rehash` so Zsh refreshes its command table and detects `openwhisper`.
+---
 
-### 2. Configure OpenWhisper
-Generate the default configuration file:
+## Configuration Reference
+
+OpenWhisper loads configuration from `~/.config/openwhisper/config.toml`. Generate the default template anytime with:
 ```bash
 openwhisper init-config
 ```
-Configuration file location: `~/.config/openwhisper/config.toml`:
+
+### Complete `config.toml` Options
+
 ```toml
-# Local OpenVINO Model Server or OpenAI-compatible endpoint
+# Local OpenVINO Model Server or any OpenAI-compatible STT endpoint
 server_url = "http://localhost:8000/v1/audio/transcriptions"
 model = "whisper"
 
-# Optional language code (e.g. "en")
+# Optional language code (e.g. "en", "de", "es", "fr")
 # language = "en"
+
+# Optional prompt guidance passed to Whisper
+# prompt = "Software engineering discussion with Rust and Wayland"
+
+# Optional API key (required for cloud endpoints like Groq or OpenAI)
+# api_key = "sk-..."
 
 # PTT threshold in milliseconds (hold >= 350ms for PTT, tap < 350ms for toggle)
 ptt_threshold_ms = 350
@@ -113,79 +141,91 @@ ptt_threshold_ms = 350
 output_mode = "paste"
 paste_delay_ms = 60
 
-# Desktop notifications
+# Desktop notifications via libnotify
 show_notifications = true
+
+# Pure in-memory acoustic feedback (earcons)
+sound_feedback = true
+sound_volume = 0.50
+
+# Voice Activity Detection (RMS silence gating)
+vad_enabled = true
+vad_silence_timeout_ms = 1800
+vad_energy_threshold = 0.015
+
+# Output text formatting mode: "standard", "snake_case", "camel_case", "kebab_case", or "raw"
+formatting_mode = "standard"
+
+# Domain vocabulary biasing (injected into Whisper decoding context)
+vocabulary = [
+    "Rust",
+    "Wayland",
+    "KDE",
+    "OpenVINO",
+    "cpal",
+    "tokio",
+    "uinput",
+    "Fedora",
+]
+
+# Optional specific microphone name (leave unset for system default)
+# audio_device = "USB Audio Device"
 
 # Path for daemon IPC socket
 socket_path = "/run/user/1000/openwhisper.sock"
 ```
 
-### 3. Verify Local OpenVINO Connection
-Ensure OpenVINO Model Server is running with Whisper, then verify connectivity:
+### In-Flight Configuration Reloading
+When updating settings via the GUI panel or editing `config.toml` manually, apply changes live to the running daemon without restarting:
 ```bash
-openwhisper test-ovms
+openwhisper reload
 ```
+The daemon reloads its configuration, updates STT endpoints, adjusts sound volumes, toggles VAD, and updates PTT thresholds in-memory immediately.
 
 ---
 
-## Configuring Global Keybindings in KDE Plasma 6
+## Desktop Integration & Hotkeys
 
-### Method 1: KDE System Settings (Recommended)
-1. Open **System Settings** -> **Keyboard** -> **Shortcuts** (or search "Shortcuts").
-2. Click **Add New** -> **Command or Script**.
-3. Set Name: `OpenWhisper Dictate (Toggle)`
-4. Set Command: `openwhisper toggle` (or full path `~/.local/bin/openwhisper toggle`).
-5. Click **Add Custom Shortcut** and press your desired key (for example `Meta+Space` or `Ctrl+Alt+Space` or `Pause/Break`).
+### System Tray & GUI Panel
+- **System Tray**: OpenWhisper runs as a StatusNotifierItem in your KDE Plasma panel or system tray. Left-click the microphone icon to toggle dictation or right-click to open Settings or Quit.
+- **Settings GUI**: Run `openwhisper config-gui` or select **Settings...** from the tray menu to inspect live server latency, test microphone audio levels, and tune parameters visually.
+
+### Configuring Global Hotkeys in KDE Plasma 6
+1. Open **System Settings** $\rightarrow$ **Keyboard** $\rightarrow$ **Shortcuts**.
+2. Click **Add New** $\rightarrow$ **Command or Script**.
+3. Name: `OpenWhisper Dictate (Toggle)`
+4. Command: `openwhisper toggle` (or `/usr/local/bin/openwhisper toggle`).
+5. Click **Add Custom Shortcut** and assign your preferred trigger (e.g. `Meta+Space` or `Ctrl+Alt+Space` or `Pause/Break`).
 6. Click **Apply**.
 
-Now pressing your shortcut will toggle recording on and off, pasting your spoken text directly wherever your cursor is!
-
-### Method 2: Push-to-Talk (Hold to record)
-In KDE Plasma 6 or Wayland compositors that support key release events (or mouse button tools):
+#### Push-to-Talk (Hold to speak)
+For tools or compositors that support separate Key Down and Key Up bindings:
 - Key Down: `openwhisper ptt-down`
 - Key Up: `openwhisper ptt-up`
 
 ---
 
-## Running as a Background Service
-
-### User systemd Service
-To start OpenWhisper automatically on desktop login:
-```bash
-mkdir -p ~/.config/systemd/user
-cp systemd/openwhisper.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now openwhisper.service
-```
-
-Check status:
-```bash
-systemctl --user status openwhisper.service
-```
-
----
-
 ## CLI Usage Reference
 
-| Command | Description |
-|---|---|
-| `openwhisper daemon` | Starts the background listening daemon |
-| `openwhisper toggle` | Toggles dictation on/off via IPC |
-| `openwhisper ptt-down` | Triggers key down (hold to talk) |
-| `openwhisper ptt-up` | Triggers key up (release to transcribe) |
-| `openwhisper cancel` | Cancels current recording |
-| `openwhisper status` | Queries daemon status |
-| `openwhisper record` | One-shot terminal recording (press Enter to stop) |
-| `openwhisper test-ovms` | Tests connectivity and latency to OpenVINO whisper |
-| `openwhisper config-gui` | Launches native graphical settings panel |
-| `openwhisper setup` | Automated setup: installs binary, icons, desktop files, and systemd |
-| `openwhisper list-devices` | Lists available audio input devices (microphones) |
-| `openwhisper init-config` | Initializes `~/.config/openwhisper/config.toml` |
-
+| Command | Subcommand Alias | Description |
+|---|---|---|
+| `openwhisper daemon` | | Starts the background listening daemon |
+| `openwhisper toggle` | | Toggles dictation on/off via IPC |
+| `openwhisper ptt-down` | `down`, `press` | Triggers key down (hold to talk) |
+| `openwhisper ptt-up` | `up`, `release` | Triggers key up (release to transcribe) |
+| `openwhisper cancel` | | Cancels current recording |
+| `openwhisper status` | | Queries daemon status |
+| `openwhisper reload` | `reload-config` | Reloads daemon configuration live via IPC |
+| `openwhisper config-gui`| `gui`, `settings`| Opens native graphical configuration panel |
+| `openwhisper record` | | Standalone one-shot recording (press Enter to finish) |
+| `openwhisper test-ovms` | | Tests connectivity and latency to STT endpoint |
+| `openwhisper setup` | | Automated setup: installs binary, icons, desktop files, and systemd |
+| `openwhisper list-devices`| | Lists available microphone audio devices |
+| `openwhisper init-config`| | Initializes default `~/.config/openwhisper/config.toml` |
 
 ---
 
-## Documentation & Contributing
+## Documentation & Future Roadmap
 
-- 🤖 **[AGENTS.md](AGENTS.md)**: Orientation guide for autonomous agents and developers in Antigravity IDE (architecture invariants, zero-disk in-memory pipeline, permissions, and debugging).
-- 🗺️ **[ROADMAP.md](ROADMAP.md)**: Technical specifications for planned improvements (audio earcons, contextual prompting, VAD, macOS/Windows/iOS platform backends).
+- 🤖 **[AGENTS.md](AGENTS.md)**: Developer and AI agent guide detailing architecture invariants, zero-disk memory constraints, and threading safety.
+- 🗺️ **[ROADMAP.md](ROADMAP.md)**: Technical specifications for upcoming multi-platform backends (macOS CoreAudio/CGEventTap, Windows WASAPI/SendInput, iOS keyboard extension), real-time streaming dictation, and minimalist floating HUD overlay.

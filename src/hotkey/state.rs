@@ -35,6 +35,15 @@ impl HotkeyEngine {
         self.state
     }
 
+    pub fn set_ptt_threshold_ms(&mut self, ms: u64) {
+        self.ptt_threshold = Duration::from_millis(ms);
+    }
+
+    #[allow(dead_code)]
+    pub fn ptt_threshold_ms(&self) -> u64 {
+        self.ptt_threshold.as_millis() as u64
+    }
+
     pub fn is_recording(&self) -> bool {
         matches!(self.state, ModeState::HoldingPress | ModeState::ActiveToggle)
     }
@@ -217,5 +226,13 @@ mod tests {
         let mut engine = HotkeyEngine::new(100);
         assert_eq!(engine.on_release(), Action::None);
         assert_eq!(engine.current_state(), ModeState::Idle);
+    }
+
+    #[test]
+    fn test_ptt_threshold_update() {
+        let mut engine = HotkeyEngine::new(350);
+        assert_eq!(engine.ptt_threshold_ms(), 350);
+        engine.set_ptt_threshold_ms(500);
+        assert_eq!(engine.ptt_threshold_ms(), 500);
     }
 }

@@ -52,6 +52,9 @@ pub struct Config {
     #[serde(default)]
     pub formatting_mode: FormattingMode,
 
+    #[serde(default = "default_true")]
+    pub trailing_space: bool,
+
     #[serde(default = "default_false")]
     pub vad_enabled: bool,
 
@@ -179,6 +182,7 @@ impl Default for Config {
             sound_volume: default_sound_volume(),
             vocabulary: default_vocabulary(),
             formatting_mode: FormattingMode::Standard,
+            trailing_space: default_true(),
             vad_enabled: default_false(),
             vad_silence_timeout_ms: default_vad_silence_timeout_ms(),
             vad_energy_threshold: default_vad_energy_threshold(),
@@ -266,6 +270,7 @@ mod tests {
         assert_eq!(cfg.sound_volume, 0.5);
         assert!(!cfg.vocabulary.is_empty());
         assert_eq!(cfg.formatting_mode, FormattingMode::Standard);
+        assert!(cfg.trailing_space);
         assert!(!cfg.vad_enabled);
         assert_eq!(cfg.vad_silence_timeout_ms, 1800);
         assert_eq!(cfg.vad_energy_threshold, 0.015);
@@ -277,6 +282,7 @@ mod tests {
         cfg.server_url = "https://api.groq.com/openai/v1/audio/transcriptions".to_string();
         cfg.model = "whisper-large-v3".to_string();
         cfg.formatting_mode = FormattingMode::SnakeCase;
+        cfg.trailing_space = false;
         cfg.sound_volume = 0.75;
         cfg.vad_enabled = true;
 
@@ -286,6 +292,7 @@ mod tests {
         assert_eq!(parsed.server_url, cfg.server_url);
         assert_eq!(parsed.model, cfg.model);
         assert_eq!(parsed.formatting_mode, FormattingMode::SnakeCase);
+        assert!(!parsed.trailing_space);
         assert_eq!(parsed.sound_volume, 0.75);
         assert!(parsed.vad_enabled);
     }
@@ -345,5 +352,14 @@ mod tests {
 
         let parsed_pos: HudPosition = serde_json::from_str(r#""bottom_right""#).unwrap();
         assert_eq!(parsed_pos, HudPosition::BottomRight);
+    }
+
+    #[test]
+    fn test_trailing_space_custom_config() {
+        let toml_data = r#"
+            trailing_space = false
+        "#;
+        let parsed: Config = toml::from_str(toml_data).expect("Failed to parse trailing space");
+        assert!(!parsed.trailing_space);
     }
 }

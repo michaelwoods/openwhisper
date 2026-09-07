@@ -19,21 +19,27 @@ pub fn run_hud_window(controller: HudController) -> Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("OpenWhisper HUD")
+            .with_app_id("net.local.openwhisper.hud")
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
             .with_resizable(false)
             .with_inner_size([290.0, 48.0])
             .with_taskbar(false)
-            .with_active(false),
+            .with_active(false)
+            .with_mouse_passthrough(true),
         event_loop_builder,
         ..Default::default()
     };
 
+    let ctrl_init = controller.clone();
     eframe::run_native(
         "OpenWhisper HUD",
         native_options,
-        Box::new(|_cc| Ok(Box::new(HudApp::new(controller)))),
+        Box::new(move |cc| {
+            ctrl_init.set_ctx(cc.egui_ctx.clone());
+            Ok(Box::new(HudApp::new(controller)))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("Failed to run HUD window: {e}"))
 }
@@ -41,6 +47,7 @@ pub fn run_hud_window(controller: HudController) -> Result<()> {
 pub struct HudApp {
     controller: HudController,
     start_time: Instant,
+    last_pos: Option<Pos2>,
 }
 
 impl HudApp {
@@ -48,6 +55,7 @@ impl HudApp {
         Self {
             controller,
             start_time: Instant::now(),
+            last_pos: None,
         }
     }
 }
@@ -59,17 +67,49 @@ impl eframe::App for HudApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.controller.set_ctx(ui.ctx().clone());
+
         let now = Instant::now();
-        let (state, smoothed_rms, alpha) = {
+        let (state, smoothed_rms, alpha, position) = {
             let lock = self.controller.model();
             let model = lock.read().unwrap();
             let alpha = model.calculate_alpha(now);
-            (model.state.clone(), model.smoothed_rms, alpha)
+            (model.state.clone(), model.smoothed_rms, alpha, model.position)
         };
 
+        // Screen position calculation based on monitor size
+        if let Some(monitor_size) = ui.ctx().input(|i| i.viewport().monitor_size) {
+            if monitor_size.x > 100.0 && monitor_size.y > 100.0 {
+                let win_w = 290.0;
+                let win_h = 48.0;
+                let margin_y = 60.0;
+                let margin_x = 40.0;
+                let (x, y) = match position {
+                    crate::config::HudPosition::BottomCenter => {
+                        ((monitor_size.x - win_w) / 2.0, monitor_size.y - win_h - margin_y)
+                    }
+                    crate::config::HudPosition::TopCenter => {
+                        ((monitor_size.x - win_w) / 2.0, margin_y)
+                    }
+                    crate::config::HudPosition::BottomRight => {
+                        (monitor_size.x - win_w - margin_x, monitor_size.y - win_h - margin_y)
+                    }
+                    crate::config::HudPosition::TopRight => {
+                        (monitor_size.x - win_w - margin_x, margin_y)
+                    }
+                };
+                let target_pos = Pos2::new(x, y);
+                if self.last_pos != Some(target_pos) {
+                    self.last_pos = Some(target_pos);
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::OuterPosition(target_pos));
+                }
+            }
+        }
+
         if alpha <= 0.01 {
-            // Window is completely transparent/hidden
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
+            // Window is completely transparent/idle.
+            // Do not schedule busy repaints when idle to save CPU/battery.
+            // When user starts recording, `controller.set_recording()` wakes up egui via `request_repaint()`.
             return;
         }
 

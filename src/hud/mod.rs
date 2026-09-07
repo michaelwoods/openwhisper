@@ -155,12 +155,28 @@ impl HudModel {
 #[derive(Clone)]
 pub struct HudController {
     model: Arc<RwLock<HudModel>>,
+    ctx: Arc<RwLock<Option<eframe::egui::Context>>>,
 }
 
 impl HudController {
     pub fn new(model: HudModel) -> Self {
         Self {
             model: Arc::new(RwLock::new(model)),
+            ctx: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub fn set_ctx(&self, ctx: eframe::egui::Context) {
+        if let Ok(mut lock) = self.ctx.write() {
+            *lock = Some(ctx);
+        }
+    }
+
+    pub fn request_repaint(&self) {
+        if let Ok(lock) = self.ctx.read() {
+            if let Some(ctx) = &*lock {
+                ctx.request_repaint();
+            }
         }
     }
 
@@ -172,48 +188,56 @@ impl HudController {
         if let Ok(mut lock) = self.model.write() {
             lock.set_recording();
         }
+        self.request_repaint();
     }
 
     pub fn update_audio_level(&self, rms: f32) {
         if let Ok(mut lock) = self.model.write() {
             lock.update_audio_level(rms);
         }
+        self.request_repaint();
     }
 
     pub fn set_transcribing(&self) {
         if let Ok(mut lock) = self.model.write() {
             lock.set_transcribing();
         }
+        self.request_repaint();
     }
 
     pub fn set_completed(&self, text: &str) {
         if let Ok(mut lock) = self.model.write() {
             lock.set_completed(text);
         }
+        self.request_repaint();
     }
 
     pub fn set_error(&self, message: &str) {
         if let Ok(mut lock) = self.model.write() {
             lock.set_error(message);
         }
+        self.request_repaint();
     }
 
     pub fn set_idle(&self) {
         if let Ok(mut lock) = self.model.write() {
             lock.set_idle();
         }
+        self.request_repaint();
     }
 
     pub fn set_enabled(&self, enabled: bool) {
         if let Ok(mut lock) = self.model.write() {
             lock.enabled = enabled;
         }
+        self.request_repaint();
     }
 
     pub fn set_position(&self, position: HudPosition) {
         if let Ok(mut lock) = self.model.write() {
             lock.position = position;
         }
+        self.request_repaint();
     }
 }
 

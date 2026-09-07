@@ -17,6 +17,7 @@ pub struct TranscriptionClient {
     temperature: Option<f32>,
     api_key: Option<String>,
     formatting_mode: FormattingMode,
+    trailing_space: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +44,7 @@ impl TranscriptionClient {
             temperature: config.temperature,
             api_key: config.api_key.clone(),
             formatting_mode: config.formatting_mode,
+            trailing_space: config.trailing_space,
         }
     }
 
@@ -116,15 +118,15 @@ impl TranscriptionClient {
             );
         }
 
-        parse_transcription_response(&body_text, self.formatting_mode)
+        parse_transcription_response(&body_text, self.formatting_mode, self.trailing_space)
     }
 }
 
 /// Parses the JSON response body from an OpenAI-compatible STT endpoint and formats the output.
-pub fn parse_transcription_response(body_text: &str, mode: FormattingMode) -> Result<String> {
+pub fn parse_transcription_response(body_text: &str, mode: FormattingMode, trailing_space: bool) -> Result<String> {
     if let Ok(res) = serde_json::from_str::<TranscriptionResponse>(body_text) {
         if let Some(text) = res.text {
-            return Ok(format_transcription(&text, mode));
+            return Ok(format_transcription(&text, mode, trailing_space));
         }
         if let Some(err) = res.error {
             bail!("STT API returned error object: {}", err);
@@ -144,28 +146,31 @@ mod tests {
     #[test]
     fn test_parse_valid_response_standard() {
         let json = r#"{"text": "Hello world from Whisper."}"#;
-        let res = parse_transcription_response(json, FormattingMode::Standard).unwrap();
-        assert_eq!(res, "Hello world from Whisper.");
+        let res = parse_transcription_response(json, FormattingMode::Standard, true).unwrap();
+        assert_eq!(res, "Hello world from Whisper. ");
+
+        let res_no_space = parse_transcription_response(json, FormattingMode::Standard, false).unwrap();
+        assert_eq!(res_no_space, "Hello world from Whisper.");
     }
 
     #[test]
     fn test_parse_valid_response_snake_case() {
         let json = r#"{"text": "OpenWhisper Dictation Engine"}"#;
-        let res = parse_transcription_response(json, FormattingMode::SnakeCase).unwrap();
+        let res = parse_transcription_response(json, FormattingMode::SnakeCase, true).unwrap();
         assert_eq!(res, "openwhisper_dictation_engine");
     }
 
     #[test]
     fn test_parse_error_object() {
         let json = r#"{"error": {"message": "Invalid API key"}}"#;
-        let err = parse_transcription_response(json, FormattingMode::Standard).unwrap_err();
+        let err = parse_transcription_response(json, FormattingMode::Standard, true).unwrap_err();
         assert!(err.to_string().contains("Invalid API key"));
     }
 
     #[test]
     fn test_parse_invalid_json() {
         let text = "<html>502 Bad Gateway</html>";
-        let err = parse_transcription_response(text, FormattingMode::Standard).unwrap_err();
+        let err = parse_transcription_response(text, FormattingMode::Standard, true).unwrap_err();
         assert!(err.to_string().contains("Unexpected response format"));
     }
 

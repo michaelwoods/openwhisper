@@ -53,20 +53,30 @@ pub fn extract_words(text: &str) -> Vec<String> {
     words
 }
 
-/// Formats the transcribed text according to the desired `FormattingMode`.
-pub fn format_transcription(text: &str, mode: FormattingMode) -> String {
+/// Formats the transcribed text according to the desired `FormattingMode` and optional trailing space.
+pub fn format_transcription(text: &str, mode: FormattingMode, trailing_space: bool) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return String::new();
     }
 
     match mode {
-        FormattingMode::Standard => trimmed.to_string(),
+        FormattingMode::Standard => {
+            let mut res = trimmed.to_string();
+            if trailing_space && !res.ends_with(' ') && !res.ends_with('\n') {
+                res.push(' ');
+            }
+            res
+        }
 
         FormattingMode::Raw => {
             // Trim trailing punctuation (period, exclamation, question mark)
             let without_trailing = trimmed.trim_end_matches(['.', '!', '?', ',']);
-            without_trailing.trim().to_string()
+            let mut res = without_trailing.trim().to_string();
+            if trailing_space && !res.ends_with(' ') && !res.ends_with('\n') {
+                res.push(' ');
+            }
+            res
         }
 
         FormattingMode::SnakeCase => {
@@ -154,23 +164,29 @@ mod tests {
     #[test]
     fn test_format_standard() {
         let input = "  Hello, world!  ";
-        assert_eq!(format_transcription(input, FormattingMode::Standard), "Hello, world!");
+        // Default with trailing space
+        assert_eq!(format_transcription(input, FormattingMode::Standard, true), "Hello, world! ");
+        // Without trailing space
+        assert_eq!(format_transcription(input, FormattingMode::Standard, false), "Hello, world!");
+        // Does not duplicate existing trailing space
+        assert_eq!(format_transcription("Hello, world! ", FormattingMode::Standard, true), "Hello, world! ");
     }
 
     #[test]
     fn test_format_raw() {
-        assert_eq!(format_transcription("Hello world.", FormattingMode::Raw), "Hello world");
-        assert_eq!(format_transcription("Is this real?!", FormattingMode::Raw), "Is this real");
+        assert_eq!(format_transcription("Hello world.", FormattingMode::Raw, true), "Hello world ");
+        assert_eq!(format_transcription("Hello world.", FormattingMode::Raw, false), "Hello world");
+        assert_eq!(format_transcription("Is this real?!", FormattingMode::Raw, true), "Is this real ");
     }
 
     #[test]
     fn test_format_snake_case() {
         assert_eq!(
-            format_transcription("Calculate Audio RMS Value", FormattingMode::SnakeCase),
+            format_transcription("Calculate Audio RMS Value", FormattingMode::SnakeCase, true),
             "calculate_audio_rms_value"
         );
         assert_eq!(
-            format_transcription("hello-world_test 123", FormattingMode::SnakeCase),
+            format_transcription("hello-world_test 123", FormattingMode::SnakeCase, false),
             "hello_world_test_123"
         );
     }
@@ -178,11 +194,11 @@ mod tests {
     #[test]
     fn test_format_camel_case() {
         assert_eq!(
-            format_transcription("Calculate Audio RMS Value", FormattingMode::CamelCase),
+            format_transcription("Calculate Audio RMS Value", FormattingMode::CamelCase, true),
             "calculateAudioRmsValue"
         );
         assert_eq!(
-            format_transcription("Single", FormattingMode::CamelCase),
+            format_transcription("Single", FormattingMode::CamelCase, false),
             "single"
         );
     }
@@ -190,14 +206,14 @@ mod tests {
     #[test]
     fn test_format_kebab_case() {
         assert_eq!(
-            format_transcription("Calculate Audio RMS Value", FormattingMode::KebabCase),
+            format_transcription("Calculate Audio RMS Value", FormattingMode::KebabCase, true),
             "calculate-audio-rms-value"
         );
     }
 
     #[test]
     fn test_format_empty() {
-        assert_eq!(format_transcription("   ", FormattingMode::SnakeCase), "");
-        assert_eq!(format_transcription("", FormattingMode::CamelCase), "");
+        assert_eq!(format_transcription("   ", FormattingMode::SnakeCase, true), "");
+        assert_eq!(format_transcription("", FormattingMode::CamelCase, false), "");
     }
 }

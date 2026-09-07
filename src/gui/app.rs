@@ -217,6 +217,8 @@ impl eframe::App for ConfigApp {
                             });
                     });
 
+                    ui.checkbox(&mut self.config.trailing_space, "Append trailing space after sentences");
+
                     ui.horizontal(|ui| {
                         ui.label("Output Method:");
                         egui::ComboBox::from_id_salt("output_mode")

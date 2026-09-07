@@ -137,12 +137,105 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
             .output();
     }
 
+    // Wayland / Compositor Floating Window Rules (KWin for KDE Plasma)
+    configure_kwin_rules();
+
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
+fn configure_kwin_rules() {
+    let write_cmd = if has_command_in_path("kwriteconfig6") {
+        "kwriteconfig6"
+    } else if has_command_in_path("kwriteconfig5") {
+        "kwriteconfig5"
+    } else if has_command_in_path("kwriteconfig") {
+        "kwriteconfig"
+    } else {
+        return;
+    };
+
+    let read_cmd = if has_command_in_path("kreadconfig6") {
+        "kreadconfig6"
+    } else if has_command_in_path("kreadconfig5") {
+        "kreadconfig5"
+    } else if has_command_in_path("kreadconfig") {
+        "kreadconfig"
+    } else {
+        return;
+    };
+
+    println!("🪟 Step 4: Configuring KWin window rules for Wayland HUD overlay...");
+
+    let rules_to_set = [
+        ("Description", "OpenWhisper Floating HUD"),
+        ("wmclass", "net.local.openwhisper.hud"),
+        ("wmclassmatch", "1"),
+        ("wmclasscomplete", "false"),
+        ("above", "true"),
+        ("aboverule", "2"),
+        ("noborder", "true"),
+        ("noborderrule", "2"),
+        ("skiptaskbar", "true"),
+        ("skiptaskbarrule", "2"),
+        ("skippager", "true"),
+        ("skippagerrule", "2"),
+    ];
+
+    for (key, val) in rules_to_set {
+        let _ = std::process::Command::new(write_cmd)
+            .args(["--file", "kwinrulesrc", "--group", "openwhisper_hud", "--key", key, val])
+            .output();
+    }
+
+    // Ensure openwhisper_hud is in the active rules list in [General]
+    let current_rules_output = std::process::Command::new(read_cmd)
+        .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
+        .output();
+
+    let existing_rules = current_rules_output
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default();
+    let existing_rules = existing_rules.trim();
+
+    let rule_name = "openwhisper_hud";
+    let is_present = existing_rules
+        .split(',')
+        .any(|r| r.trim() == rule_name);
+
+    if !is_present {
+        let updated_rules = if existing_rules.is_empty() {
+            rule_name.to_string()
+        } else {
+            format!("{existing_rules},{rule_name}")
+        };
+        let _ = std::process::Command::new(write_cmd)
+            .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules", &updated_rules])
+            .output();
+    }
+
+    // Reconfigure KWin if qdbus or qdbus-qt6 is available
+    let qdbus_cmd = if has_command_in_path("qdbus-qt6") {
+        Some("qdbus-qt6")
+    } else if has_command_in_path("qdbus") {
+        Some("qdbus")
+    } else {
+        None
+    };
+
+    if let Some(cmd) = qdbus_cmd {
+        let _ = std::process::Command::new(cmd)
+            .args(["org.kde.KWin", "/KWin", "reconfigure"])
+            .output();
+    }
+
+    println!("   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above forced for Wayland)");
+}
+
+#[cfg(target_os = "linux")]
 fn install_linux_systemd(home: &Path) -> Result<()> {
-    println!("⚙️  Step 4: Configuring systemd user service...");
+    println!("⚙️  Step 5: Configuring systemd user service...");
     let systemd_dir = home.join(".config/systemd/user");
     let _ = fs::create_dir_all(&systemd_dir);
     let unit_path = systemd_dir.join("openwhisper.service");

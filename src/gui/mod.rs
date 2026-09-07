@@ -94,8 +94,28 @@ pub fn run_gui(config: Config) -> Result<()> {
     };
     ui.set_output_mode_index(output_mode_idx);
     ui.set_paste_delay(config.paste_delay_ms as i32);
+    ui.set_restore_clipboard(config.restore_clipboard);
 
-    // 3. Feedback & HUD Properties
+    // 3. Audio & Recording Properties
+    let detected_devices = crate::audio::AudioRecorder::list_input_devices().unwrap_or_default();
+    let mut device_items = vec!["(System Default)".to_string()];
+    device_items.extend(detected_devices);
+    let mut active_device_idx = 0;
+    if let Some(ref current) = config.audio_device {
+        for (i, dev) in device_items.iter().enumerate() {
+            if dev == current || (i > 0 && dev.contains(current)) {
+                active_device_idx = i;
+                break;
+            }
+        }
+    }
+    let dev_shared: Vec<SharedString> = device_items.iter().map(|s| SharedString::from(s.as_str())).collect();
+    ui.set_audio_devices(ModelRc::from(Rc::new(VecModel::from(dev_shared))));
+    ui.set_audio_device_index(active_device_idx as i32);
+    ui.set_noise_suppression(config.noise_suppression);
+    ui.set_save_audio_dir(SharedString::from(config.save_audio_dir.as_deref().unwrap_or("")));
+
+    // 4. Feedback & HUD Properties
     ui.set_sound_enabled(config.sound_feedback);
     ui.set_sound_vol(config.sound_volume);
     ui.set_notifications_enabled(config.show_notifications);
@@ -319,10 +339,44 @@ pub fn run_gui(config: Config) -> Result<()> {
         });
     }
 
+    // Callback: Detect Hardware Hotkey
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_detect_hotkey(move || {
+            let Some(ui) = ui_weak.upgrade() else { return; };
+            ui.set_detecting_hotkey(true);
+            ui.set_status_text(SharedString::from("Listening for hardware keypress (10s timeout)..."));
+            ui.set_status_is_error(false);
+
+            let ui_bg = ui_weak.clone();
+            std::thread::spawn(move || {
+                let key_opt = crate::hotkey::sniff_single_key(std::time::Duration::from_secs(10));
+                let _ = ui_bg.upgrade_in_event_loop(move |ui| {
+                    ui.set_detecting_hotkey(false);
+                    if let Some(key) = key_opt {
+                        ui.set_evdev_key(SharedString::from(&key));
+                        ui.set_status_text(SharedString::from(format!("Detected hardware key: {}", key)));
+                        ui.set_status_is_error(false);
+                    } else {
+                        ui.set_status_text(SharedString::from("Key detection timed out."));
+                        ui.set_status_is_error(true);
+                    }
+                    let ui_clr = ui.as_weak();
+                    slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
+                        if let Some(ui) = ui_clr.upgrade() {
+                            ui.set_status_text(SharedString::default());
+                        }
+                    });
+                });
+            });
+        });
+    }
+
     // Callback: Save & Apply
     {
         let ui_weak = ui.as_weak();
         let vocab_model = vocab_model.clone();
+        let device_items = device_items.clone();
         ui.on_save_and_apply(move || {
             let Some(ui) = ui_weak.upgrade() else { return; };
 
@@ -355,6 +409,22 @@ pub fn run_gui(config: Config) -> Result<()> {
                 Some(prompt_str)
             };
 
+            // Audio device & noise suppression & audio export
+            let dev_idx = ui.get_audio_device_index() as usize;
+            cfg.audio_device = if dev_idx > 0 && dev_idx < device_items.len() {
+                Some(device_items[dev_idx].clone())
+            } else {
+                None
+            };
+            cfg.noise_suppression = ui.get_noise_suppression();
+
+            let save_dir = ui.get_save_audio_dir().trim().to_string();
+            cfg.save_audio_dir = if save_dir.is_empty() {
+                None
+            } else {
+                Some(save_dir)
+            };
+
             cfg.evdev_hotkey_enabled = ui.get_evdev_enabled();
             cfg.evdev_hotkey = ui.get_evdev_key().trim().to_string();
             cfg.ptt_threshold_ms = (ui.get_ptt_threshold() as u64).max(50);
@@ -364,6 +434,7 @@ pub fn run_gui(config: Config) -> Result<()> {
                 _ => OutputMode::Paste,
             };
             cfg.paste_delay_ms = (ui.get_paste_delay() as u64).max(5);
+            cfg.restore_clipboard = ui.get_restore_clipboard();
 
             cfg.sound_feedback = ui.get_sound_enabled();
             cfg.sound_volume = ui.get_sound_vol().clamp(0.0, 1.0);
@@ -506,6 +577,11 @@ pub fn run_gui(config: Config) -> Result<()> {
             ui.set_formatting_mode_index(formatting_idx);
             ui.set_trailing_space(def.trailing_space);
 
+            ui.set_audio_device_index(0);
+            ui.set_noise_suppression(def.noise_suppression);
+            ui.set_restore_clipboard(def.restore_clipboard);
+            ui.set_save_audio_dir(SharedString::default());
+
             while vocab_model.row_count() > 0 {
                 vocab_model.remove(0);
             }
@@ -563,6 +639,15 @@ mod tests {
 
         ui.set_output_mode_index(1);
         assert_eq!(ui.get_output_mode_index(), 1);
+
+        ui.set_restore_clipboard(true);
+        assert!(ui.get_restore_clipboard());
+
+        ui.set_noise_suppression(true);
+        assert!(ui.get_noise_suppression());
+
+        ui.set_save_audio_dir(SharedString::from("/tmp/recordings"));
+        assert_eq!(ui.get_save_audio_dir().as_str(), "/tmp/recordings");
 
         ui.set_sound_enabled(true);
         ui.set_sound_vol(0.85);

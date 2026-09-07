@@ -35,6 +35,29 @@ pub fn set_clipboard(text: &str) -> Result<()> {
     Ok(())
 }
 
+/// Reads the current text from the system clipboard.
+pub fn get_clipboard() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        if has_command_in_path("wl-paste") {
+            if let Ok(output) = Command::new("wl-paste").arg("--no-newline").output() {
+                if output.status.success() {
+                    if let Ok(s) = String::from_utf8(output.stdout) {
+                        return Some(s);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(mut clipboard) = Clipboard::new() {
+        return clipboard.get_text().ok();
+    }
+
+    None
+}
+
 /// Checks if an executable command exists in standard system PATH using Rust stdlib.
 pub fn has_command_in_path(cmd: &str) -> bool {
     if let Some(path_os) = std::env::var_os("PATH") {

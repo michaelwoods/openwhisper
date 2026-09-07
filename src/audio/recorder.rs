@@ -194,7 +194,14 @@ impl ActiveRecording {
     }
 
     /// Stops recording and encodes the captured audio into standard 16kHz mono WAV bytes.
+    #[allow(dead_code)]
     pub fn stop(self) -> Result<Vec<u8>> {
+        self.stop_with_options(false)
+    }
+
+    /// Stops recording and encodes the captured audio into standard 16kHz mono WAV bytes,
+    /// optionally applying RNNoise neural noise suppression before downsampling.
+    pub fn stop_with_options(self, noise_suppression: bool) -> Result<Vec<u8>> {
         self.is_recording.store(false, Ordering::SeqCst);
         drop(self.stream);
 
@@ -214,8 +221,26 @@ impl ActiveRecording {
             bail!("No audio samples captured");
         }
 
-        // Resample to 16,000 Hz mono 16-bit PCM
-        let pcm_16k = resample_to_mono_16k(&raw_samples, self.channels, self.sample_rate, 16000);
+        let pcm_16k = if noise_suppression {
+            tracing::info!("Applying RNNoise background noise suppression to captured audio...");
+            let channels = self.channels.max(1) as usize;
+            let mono_samples: Vec<f32> = raw_samples
+                .chunks_exact(channels)
+                .map(|frame| frame.iter().sum::<f32>() / (channels as f32))
+                .collect();
+
+            let denoised_16k = super::denoise_audio_mono(&mono_samples, self.sample_rate, 16000);
+            denoised_16k
+                .into_iter()
+                .map(|s| {
+                    let clamped = s.clamp(-1.0, 1.0);
+                    (clamped * 32767.0).round() as i16
+                })
+                .collect()
+        } else {
+            // Resample directly to 16,000 Hz mono 16-bit PCM
+            resample_to_mono_16k(&raw_samples, self.channels, self.sample_rate, 16000)
+        };
 
         // Encode to in-memory WAV
         let spec = WavSpec {
@@ -239,4 +264,24 @@ impl ActiveRecording {
         tracing::info!("Encoded WAV audio size: {} bytes", wav_bytes.len());
         Ok(wav_bytes)
     }
+}
+
+/// Saves recorded WAV audio and its corresponding transcript to a designated directory
+/// for dataset creation or custom TTS voice model training.
+pub fn save_recording_to_dir(dir: &std::path::Path, wav_bytes: &[u8], transcript: &str) -> Result<()> {
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("Failed to create audio export directory at {:?}", dir))?;
+
+    let now: chrono::DateTime<chrono::Local> = std::time::SystemTime::now().into();
+    let filename_base = format!("whisper_{}", now.format("%Y%m%d_%H%M%S"));
+    let wav_path = dir.join(format!("{}.wav", filename_base));
+    let txt_path = dir.join(format!("{}.txt", filename_base));
+
+    std::fs::write(&wav_path, wav_bytes)
+        .with_context(|| format!("Failed to save WAV audio to {:?}", wav_path))?;
+    std::fs::write(&txt_path, transcript)
+        .with_context(|| format!("Failed to save transcript text to {:?}", txt_path))?;
+
+    tracing::info!("Saved audio recording and transcript to {:?}", wav_path);
+    Ok(())
 }

@@ -34,6 +34,13 @@ export component SettingsWindow inherits Window {
     in-out property <int> formatting-mode-index: 0; // 0 = Standard, 1 = snake_case, 2 = camelCase, 3 = kebab-case, 4 = raw
     in-out property <bool> trailing-space: true;
 
+    in-out property <[string]> audio-devices: ["(System Default)"];
+    in-out property <int> audio-device-index: 0;
+    in-out property <bool> noise-suppression: false;
+    in-out property <bool> restore-clipboard: false;
+    in-out property <bool> detecting-hotkey: false;
+    in-out property <string> save-audio-dir: "";
+
     in-out property <[string]> vocab-words: [];
     in-out property <string> new-word-text: "";
 
@@ -53,6 +60,7 @@ export component SettingsWindow inherits Window {
     callback test-connection();
     callback test-sound();
     callback preview-hud();
+    callback detect-hotkey();
     callback add-word(string);
     callback remove-word(int);
 
@@ -156,12 +164,21 @@ export component SettingsWindow inherits Window {
                                 if root.evdev-enabled: VerticalBox {
                                     spacing: 6px;
                                     Text { text: "Hardware Keycode Identifier:"; font-size: 12px; }
-                                    LineEdit {
-                                        text <=> root.evdev-key;
-                                        placeholder-text: "KEY_RIGHTALT";
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        LineEdit {
+                                            text <=> root.evdev-key;
+                                            placeholder-text: "KEY_RIGHTALT";
+                                            horizontal-stretch: 1;
+                                        }
+                                        Button {
+                                            text: root.detecting-hotkey ? "Press key..." : "Detect Key";
+                                            enabled: !root.detecting-hotkey;
+                                            clicked => { root.detect-hotkey(); }
+                                        }
                                     }
                                     Text {
-                                        text: "Recommended: KEY_RIGHTALT (Right Alt), KEY_RIGHTCTRL, KEY_CAPSLOCK";
+                                        text: "Click 'Detect Key' and press any physical key, or enter e.g. KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_F9";
                                         font-size: 11px;
                                         color: #888888;
                                     }
@@ -199,6 +216,11 @@ export component SettingsWindow inherits Window {
                                     current-index <=> root.output-mode-index;
                                 }
 
+                                CheckBox {
+                                    text: "Restore previous clipboard contents after pasting";
+                                    checked <=> root.restore-clipboard;
+                                }
+
                                 HorizontalLayout {
                                     spacing: 8px;
                                     Text {
@@ -225,6 +247,29 @@ export component SettingsWindow inherits Window {
                     VerticalBox {
                         padding: 10px;
                         spacing: 12px;
+
+                        GroupBox {
+                            title: "Audio Input & Recording";
+                            VerticalBox {
+                                spacing: 8px;
+                                Text { text: "Microphone / Input Device:"; font-size: 12px; }
+                                ComboBox {
+                                    model: root.audio-devices;
+                                    current-index <=> root.audio-device-index;
+                                }
+
+                                CheckBox {
+                                    text: "Enable Background Noise Suppression (RNNoise Neural Filter)";
+                                    checked <=> root.noise-suppression;
+                                }
+
+                                Text { text: "Save Audio Recordings Directory (optional for TTS dataset):"; font-size: 12px; }
+                                LineEdit {
+                                    text <=> root.save-audio-dir;
+                                    placeholder-text: "e.g. /home/mike/Recordings/openwhisper";
+                                }
+                            }
+                        }
 
                         GroupBox {
                             title: "Audio Feedback";

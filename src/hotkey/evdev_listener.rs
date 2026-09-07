@@ -276,6 +276,65 @@ pub fn run_test_hotkey() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Sniffs the next pressed hardware key across all available evdev keyboard devices.
+/// Times out after the specified duration if no key is pressed.
+#[cfg(target_os = "linux")]
+pub fn sniff_single_key(timeout: Duration) -> Option<String> {
+    use std::sync::mpsc;
+
+    let (tx, rx) = mpsc::channel();
+    let stop = Arc::new(AtomicBool::new(false));
+
+    let devices = evdev::enumerate();
+    let mut spawned = false;
+
+    for (_path, mut device) in devices {
+        if let Some(name) = device.name() {
+            if name.contains("OpenWhisper") {
+                continue;
+            }
+        }
+        if device.supported_keys().is_none() {
+            continue;
+        }
+
+        let dev_tx = tx.clone();
+        let dev_stop = stop.clone();
+        spawned = true;
+
+        thread::spawn(move || {
+            while !dev_stop.load(Ordering::Relaxed) {
+                if let Ok(events) = device.fetch_events() {
+                    for ev in events {
+                        if ev.event_type() == EventType::KEY && ev.value() == 1 {
+                            let key = Key::new(ev.code());
+                            let key_name = format!("{:?}", key);
+                            let _ = dev_tx.send(key_name);
+                            dev_stop.store(true, Ordering::Relaxed);
+                            return;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
+    }
+
+    if !spawned {
+        return None;
+    }
+
+    let result = rx.recv_timeout(timeout).ok();
+    stop.store(true, Ordering::Relaxed);
+    result
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn sniff_single_key(_timeout: Duration) -> Option<String> {
+    None
+}
+
 #[cfg(not(target_os = "linux"))]
 pub fn start_evdev_listener(_key_name: &str, _cmd_tx: tokio::sync::mpsc::Sender<IpcCommand>) -> Option<EvdevListenerHandle> {
     None

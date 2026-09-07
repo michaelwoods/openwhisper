@@ -117,4 +117,46 @@ impl TextInjector {
             Ok(())
         }
     }
+
+    /// Types text directly into the focused window character-by-character using
+    /// Wayland's virtual-keyboard protocol (wtype) or kernel uinput (ydotool).
+    pub fn type_text(&mut self, text: &str) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            // 1. Try Wayland native wtype (virtual-keyboard-v1)
+            if crate::output::clipboard::has_command_in_path("wtype") {
+                if let Ok(status) = std::process::Command::new("wtype")
+                    .args(["--", text])
+                    .status()
+                {
+                    if status.success() {
+                        tracing::info!("Emitted direct keystroke text input via wtype");
+                        return Ok(());
+                    }
+                }
+            }
+
+            // 2. Try ydotool type
+            if crate::output::clipboard::has_command_in_path("ydotool") {
+                if let Ok(status) = std::process::Command::new("ydotool")
+                    .args(["type", "--", text])
+                    .status()
+                {
+                    if status.success() {
+                        tracing::info!("Emitted direct keystroke text input via ydotool");
+                        return Ok(());
+                    }
+                }
+            }
+
+            // 3. Fallback to clipboard paste
+            tracing::warn!("Direct typing tool (wtype / ydotool) unavailable or failed; falling back to clipboard paste");
+            self.paste_clipboard(0)
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.paste_clipboard(0)
+        }
+    }
 }

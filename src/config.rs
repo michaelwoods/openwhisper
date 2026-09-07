@@ -101,6 +101,28 @@ pub struct Config {
         alias = "evdev_key"
     )]
     pub evdev_hotkey: String,
+
+    #[serde(
+        default = "default_false",
+        alias = "restore_prev_clipboard",
+        alias = "clipboard_restore"
+    )]
+    pub restore_clipboard: bool,
+
+    #[serde(
+        default = "default_false",
+        alias = "rnnoise",
+        alias = "enable_noise_suppression",
+        alias = "denoise"
+    )]
+    pub noise_suppression: bool,
+
+    #[serde(
+        default,
+        alias = "recordings_dir",
+        alias = "save_audio_path"
+    )]
+    pub save_audio_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +270,9 @@ impl Default for Config {
             hud_position: default_hud_position(),
             evdev_hotkey_enabled: default_true(),
             evdev_hotkey: default_evdev_hotkey(),
+            restore_clipboard: false,
+            noise_suppression: false,
+            save_audio_dir: None,
         }
     }
 }

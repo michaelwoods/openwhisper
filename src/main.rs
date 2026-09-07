@@ -207,9 +207,9 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
 
     println!("⏳ Processing and transcribing...");
     sound.play(EarconType::RecordingStopped);
-    let wav_bytes = active_rec.stop()?;
+    let wav_bytes = active_rec.stop_with_options(config.noise_suppression)?;
     let start_t = Instant::now();
-    let text = client.transcribe(wav_bytes).await?;
+    let text = client.transcribe(wav_bytes.clone()).await?;
     let elapsed = start_t.elapsed().as_secs_f32();
 
     sound.play(EarconType::Transcribed);
@@ -217,6 +217,10 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
     println!("--------------------------------------------------");
     println!("{}", text);
     println!("--------------------------------------------------");
+
+    if let Some(ref dir_str) = config.save_audio_dir {
+        let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);
+    }
 
     if !no_paste && config.output_mode == OutputMode::Paste {
         println!("Inserting text into active cursor & copying to clipboard...");
@@ -246,7 +250,7 @@ async fn run_daemon(config: Config) -> Result<()> {
     let output_mgr = Arc::new(Mutex::new(OutputManager::new(&config)));
     let engine = Arc::new(Mutex::new(HotkeyEngine::new(config.ptt_threshold_ms)));
     let active_recording: Arc<Mutex<Option<audio::ActiveRecording>>> = Arc::new(Mutex::new(None));
-    let recorder = Arc::new(AudioRecorder::new(config.audio_device.clone()));
+    let mut recorder = Arc::new(AudioRecorder::new(config.audio_device.clone()));
     let mut active_config = config;
 
     // Spawn IPC Unix Socket Server
@@ -328,6 +332,12 @@ async fn run_daemon(config: Config) -> Result<()> {
                                 if new_cfg.evdev_hotkey_enabled {
                                     evdev_handle = hotkey::start_evdev_listener(&new_cfg.evdev_hotkey, cmd_tx.clone());
                                 }
+                            }
+
+                            // Reload audio recorder if device configuration changed
+                            if new_cfg.audio_device != active_config.audio_device {
+                                recorder = Arc::new(AudioRecorder::new(new_cfg.audio_device.clone()));
+                                tracing::info!("Audio input device reconfigured to: {:?}", new_cfg.audio_device);
                             }
 
                             active_config = new_cfg;
@@ -462,19 +472,26 @@ async fn run_daemon(config: Config) -> Result<()> {
                     let tray_ctrl_clone = tray_ctrl.clone();
                     let hud_ctrl_clone = hud_ctrl.clone();
 
-                    let wav_res = rec.stop();
+                    let noise_suppression = active_config.noise_suppression;
+                    let save_audio_dir = active_config.save_audio_dir.clone();
+                    let wav_res = rec.stop_with_options(noise_suppression);
                     tokio::spawn(async move {
                         match wav_res {
                             Ok(wav_bytes) => {
                                 let start = Instant::now();
                                 let transcribe_res = {
                                     let cl = client_clone.read().await.clone();
-                                    cl.transcribe(wav_bytes).await
+                                    cl.transcribe(wav_bytes.clone()).await
                                 };
                                 match transcribe_res {
                                     Ok(text) => {
                                         let duration = start.elapsed().as_secs_f32();
                                         tracing::info!("Transcribed in {:.2}s: {:?}", duration, text);
+
+                                        if let Some(ref dir_str) = save_audio_dir {
+                                            let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);
+                                        }
+
                                         tray_ctrl_clone.set_state(tray::TrayState::Idle);
                                         hud_ctrl_clone.set_completed(&text);
                                         notif_clone.read().await.transcribed(&text);

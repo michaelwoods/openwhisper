@@ -57,3 +57,51 @@ For lengthy dictation sessions, seeing words appear in real time reduces perceiv
     - Track the character length of the last interim token sequence.
     - Emit backspaces or replacement sequences to rewrite the active draft as Whisper's language model refines word choices based on extended acoustic context.
   - On release/silence, lock the finalized transcript into the active document.
+
+### Research Findings: OpenVINO Model Server (OVMS) Audio Streaming
+- **HTTP REST (`/v1/audio/transcriptions`)**: Supports streaming *responses* (SSE text tokens via `stream=true`), but does **not** support live chunked *audio input* streams. The complete audio file must be uploaded in the request body.
+- **gRPC (`ModelStreamInfer`)**: OVMS provides bidirectional gRPC streaming, but out-of-the-box Whisper models (`speech2text` task) operate on discrete audio buffers. True live chunked streaming audio requires deploying a custom MediaPipe audio chunking and sliding-window graph on the server.
+
+---
+
+## 3. Persistent Transcription History & Search
+
+### Motivation
+Users often dictate thoughts, messages, or code snippets that they need to reference or re-copy later, especially if the target application was not focused or the text was accidentally replaced.
+
+### Architecture & Storage
+- **Persistent Storage**:
+  - Persist all completed dictations to `~/.local/share/openwhisper/history.sqlite3` (or append-only JSONL).
+  - Store metadata: timestamp, raw transcript, formatted transcript, audio duration, endpoint used, and character count.
+- **Access & UI**:
+  - Add a dedicated **History** tab in the Slint Settings window featuring full-text search, copy-to-clipboard buttons, and date filtering.
+  - CLI command: `openwhisper history [--limit N] [--search QUERY]`.
+
+---
+
+## 4. Audio Dataset Collection & TTS Voice Cloning
+
+### Motivation
+High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2) require hundreds of paired `.wav` audio files and matching text transcripts to train or fine-tune personalized synthetic voices.
+
+### Implementation
+- Configurable `save_audio_dir` setting (e.g. `~/Recordings/openwhisper/`).
+- When enabled, every dictation automatically saves a timestamped `whisper_YYYYMMDD_HHMMSS.wav` (16kHz mono) and paired `whisper_YYYYMMDD_HHMMSS.txt` transcript.
+- Built-in data export tool (`openwhisper export-tts-dataset`) to generate standard metadata manifests (`metadata.csv` / LJSpeech format) ready for TTS training pipelines.
+
+---
+
+## 5. LLM Post-Processing & Smart Dictation Styles (Low Priority)
+
+### Motivation
+Spoken language frequently contains conversational artifacts such as filler words ("um", "uh", "you know"), stutters, false starts, and self-corrections ("let's meet Tuesday, wait, I mean Wednesday").
+
+### Architecture
+- Optional second-stage LLM pipeline querying a local model (Ollama, vLLM, llama.cpp on `frigg`) or cloud API.
+- **Persona & Transformation Styles**:
+  - **Cleaned**: Strips fillers, repetitions, and hesitation while preserving exact word choice.
+  - **Professional / Email**: Formats stream-of-consciousness thoughts into concise, polished paragraphs.
+  - **Code & Terminal**: Automatically detects variable names, shell commands, and syntax.
+  - **Bullet Points**: Condenses spoken thoughts into structured action items.
+- Configurable per-app rules (e.g. Terminal apps use Code style, email clients use Professional style).
+

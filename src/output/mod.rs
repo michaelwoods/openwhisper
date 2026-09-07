@@ -11,6 +11,7 @@ pub struct OutputManager {
     injector: TextInjector,
     mode: OutputMode,
     paste_delay_ms: u64,
+    restore_clipboard: bool,
 }
 
 impl OutputManager {
@@ -19,12 +20,14 @@ impl OutputManager {
             injector: TextInjector::new(),
             mode: config.output_mode,
             paste_delay_ms: config.paste_delay_ms,
+            restore_clipboard: config.restore_clipboard,
         }
     }
 
     pub fn update_config(&mut self, config: &Config) {
         self.mode = config.output_mode;
         self.paste_delay_ms = config.paste_delay_ms;
+        self.restore_clipboard = config.restore_clipboard;
     }
 
     pub fn output_text(&mut self, text: &str) -> Result<()> {
@@ -34,17 +37,34 @@ impl OutputManager {
 
         match self.mode {
             OutputMode::Paste => {
-                // Set clipboard first, then trigger paste
+                let prev_clip = if self.restore_clipboard {
+                    clipboard::get_clipboard()
+                } else {
+                    None
+                };
+
+                // Set clipboard first, then trigger Ctrl+V paste
                 set_clipboard(text)?;
                 self.injector.paste_clipboard(self.paste_delay_ms)?;
+
+                // Asynchronously restore previous clipboard contents after target app consumed paste
+                if let Some(prev) = prev_clip {
+                    if prev != text {
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(350));
+                            let _ = set_clipboard(&prev);
+                            tracing::debug!("Restored previous clipboard contents");
+                        });
+                    }
+                }
             }
             OutputMode::ClipboardOnly => {
                 set_clipboard(text)?;
             }
             OutputMode::Type => {
-                // Fallback to paste if type not implemented, or paste directly
+                // Ensure text is stored in clipboard as a fallback for manual pasting if target window loses focus
                 set_clipboard(text)?;
-                self.injector.paste_clipboard(self.paste_delay_ms)?;
+                self.injector.type_text(text)?;
             }
         }
         Ok(())

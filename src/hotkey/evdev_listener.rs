@@ -46,7 +46,7 @@ pub fn start_evdev_listener(key_name: &str, cmd_tx: Sender<IpcCommand>) -> Optio
         Some(k) => k,
         None => {
             tracing::warn!(
-                "Could not resolve evdev key '{}'. Supported examples: 'KEY_HELP', 'KEY_MICMUTE', 'KEY_F20'. Hardware hotkey listener disabled.",
+                "Could not resolve evdev key '{}'. Supported examples: 'KEY_RIGHTALT', 'KEY_RIGHTCTRL', 'KEY_HELP', 'KEY_MICMUTE'. Hardware hotkey listener disabled.",
                 key_name
             );
             return None;

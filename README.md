@@ -146,6 +146,10 @@ model = "whisper"
 # PTT threshold in milliseconds (hold >= 350ms for PTT, tap < 350ms for toggle)
 ptt_threshold_ms = 350
 
+# Direct Linux evdev hardware hotkey (instant Push-to-Talk + Toggle)
+evdev_hotkey_enabled = true
+evdev_hotkey = "KEY_RIGHTALT" # Options: KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_CAPSLOCK, KEY_HELP, etc.
+
 # Output mode: "paste" (Ctrl+V into active cursor + clipboard), "clipboard_only", or "type"
 output_mode = "paste"
 paste_delay_ms = 60
@@ -204,7 +208,14 @@ The daemon reloads its configuration, updates STT endpoints, adjusts sound volum
 - **System Tray**: OpenWhisper runs as a StatusNotifierItem in your KDE Plasma panel or system tray. Left-click the microphone icon to toggle dictation or right-click to open Settings or Quit.
 - **Settings GUI**: Run `openwhisper config-gui` or select **Settings...** from the tray menu to inspect live server latency, test microphone audio levels, toggle HUD overlay, and tune parameters visually.
 
-### Configuring Global Hotkeys in KDE Plasma 6
+### Hardware Push-to-Talk & Dual-Mode (Linux evdev)
+OpenWhisper monitors hardware keyboard events via Linux `/dev/input/event*`, enabling seamless dual-mode **Push-To-Talk** (hold to record, release to transcribe) and **Toggle** (tap to start, tap to stop) without depending on Wayland compositor shortcut daemons:
+- **Default Trigger**: `KEY_RIGHTALT` (Right Alt / AltGr).
+- **Hold $\ge$ 350ms**: Push-to-Talk mode — audio records while held; releasing automatically finalizes transcription and pastes into the active application.
+- **Tap $<$ 350ms**: Hands-free Toggle mode — starts recording; tap again to stop.
+- **Hardware Sniffer**: Run `openwhisper test-hotkey` to verify scancodes, press/release events, and hold timings in real time.
+
+### Configuring Global Hotkeys in KDE Plasma 6 (Alternative)
 1. Open **System Settings** $\rightarrow$ **Keyboard** $\rightarrow$ **Shortcuts**.
 2. Click **Add New** $\rightarrow$ **Command or Script**.
 3. Name: `OpenWhisper Dictate (Toggle)`
@@ -212,7 +223,7 @@ The daemon reloads its configuration, updates STT endpoints, adjusts sound volum
 5. Click **Add Custom Shortcut** and assign your preferred trigger (e.g. `Meta+Space` or `Ctrl+Alt+Space` or `Pause/Break`).
 6. Click **Apply**.
 
-#### Push-to-Talk (Hold to speak)
+#### Push-to-Talk via IPC (Hold to speak)
 For tools or compositors that support separate Key Down and Key Up bindings:
 - Key Down: `openwhisper ptt-down`
 - Key Up: `openwhisper ptt-up`

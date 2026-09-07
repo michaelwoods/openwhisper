@@ -250,7 +250,7 @@ impl eframe::App for ConfigApp {
                         ui.horizontal(|ui| {
                             ui.label("Hardware Key Identifier:");
                             ui.text_edit_singleline(&mut self.config.evdev_hotkey);
-                            ui.label("(e.g. KEY_HELP for Fn+F9, KEY_MICMUTE, KEY_F20)");
+                            ui.label("(e.g. KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_HELP, KEY_CAPSLOCK)");
                         });
                     }
                 });

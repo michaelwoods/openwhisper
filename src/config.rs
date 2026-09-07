@@ -192,7 +192,7 @@ fn default_socket_path() -> String {
 }
 
 fn default_evdev_hotkey() -> String {
-    "KEY_HELP".to_string()
+    "KEY_RIGHTALT".to_string()
 }
 
 #[cfg(target_os = "linux")]
@@ -444,7 +444,7 @@ mod tests {
     fn test_evdev_config_and_key_parsing() {
         let default_cfg = Config::default();
         assert!(default_cfg.evdev_hotkey_enabled);
-        assert_eq!(default_cfg.evdev_hotkey, "KEY_HELP");
+        assert_eq!(default_cfg.evdev_hotkey, "KEY_RIGHTALT");
 
         let toml_data = r#"
             evdev_hotkey_enabled = false
@@ -456,6 +456,10 @@ mod tests {
 
         #[cfg(target_os = "linux")]
         {
+            assert_eq!(parse_evdev_key("KEY_RIGHTALT"), Some(evdev::Key::KEY_RIGHTALT));
+            assert_eq!(parse_evdev_key("rightalt"), Some(evdev::Key::KEY_RIGHTALT));
+            assert_eq!(parse_evdev_key("RightAlt"), Some(evdev::Key::KEY_RIGHTALT));
+            assert_eq!(parse_evdev_key("100"), Some(evdev::Key::KEY_RIGHTALT));
             assert_eq!(parse_evdev_key("KEY_HELP"), Some(evdev::Key::KEY_HELP));
             assert_eq!(parse_evdev_key("help"), Some(evdev::Key::KEY_HELP));
             assert_eq!(parse_evdev_key("Help"), Some(evdev::Key::KEY_HELP));

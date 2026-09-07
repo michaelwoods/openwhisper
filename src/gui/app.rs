@@ -17,7 +17,15 @@ pub struct ConfigApp {
 }
 
 impl ConfigApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>, config: Config) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, config: Config) -> Self {
+        // Enforce solid, fully opaque dark styling (no compositor transparency artifacts)
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = egui::Color32::from_rgb(26, 27, 30);
+        visuals.window_fill = egui::Color32::from_rgb(26, 27, 30);
+        visuals.faint_bg_color = egui::Color32::from_rgb(34, 35, 39);
+        visuals.extreme_bg_color = egui::Color32::from_rgb(18, 18, 20);
+        cc.egui_ctx.set_visuals(visuals);
+
         Self {
             config,
             new_vocab_word: String::new(),
@@ -124,6 +132,11 @@ impl ConfigApp {
 }
 
 impl eframe::App for ConfigApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // Force fully opaque solid clear color (no compositor bleedthrough)
+        [26.0 / 255.0, 27.0 / 255.0, 30.0 / 255.0, 1.0]
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Poll async test connection result if any
         if let Some(ref rx) = self.test_receiver {

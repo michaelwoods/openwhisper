@@ -38,6 +38,7 @@ pub fn run_hud_window(controller: HudController) -> Result<()> {
         native_options,
         Box::new(move |cc| {
             ctrl_init.set_ctx(cc.egui_ctx.clone());
+            crate::gui::configure_fallback_fonts(&cc.egui_ctx);
             Ok(Box::new(HudApp::new(controller)))
         }),
     )
@@ -244,14 +245,14 @@ impl eframe::App for HudApp {
             }
 
             HudState::Completed { text_preview, .. } => {
-                // Green checkmark
-                painter.text(
-                    Pos2::new(rect.min.x + 18.0, center_y),
-                    egui::Align2::CENTER_CENTER,
-                    "✓",
-                    egui::FontId::proportional(14.0),
-                    Color32::from_rgba_unmultiplied(34, 197, 94, (255.0 * alpha) as u8),
-                );
+                // Crisp antialiased vector checkmark (zero font dependency)
+                let check_color = Color32::from_rgba_unmultiplied(34, 197, 94, (255.0 * alpha) as u8);
+                let p_start = Pos2::new(rect.min.x + 13.0, center_y);
+                let p_mid = Pos2::new(rect.min.x + 17.0, center_y + 4.0);
+                let p_end = Pos2::new(rect.min.x + 23.0, center_y - 4.0);
+                let stroke = Stroke::new(2.0, check_color);
+                painter.line_segment([p_start, p_mid], stroke);
+                painter.line_segment([p_mid, p_end], stroke);
 
                 // Truncated preview text
                 painter.text(
@@ -264,13 +265,18 @@ impl eframe::App for HudApp {
             }
 
             HudState::Error { message, .. } => {
-                // Warning icon
-                painter.text(
-                    Pos2::new(rect.min.x + 18.0, center_y),
-                    egui::Align2::CENTER_CENTER,
-                    "⚠️",
-                    egui::FontId::proportional(12.0),
-                    Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * alpha) as u8),
+                // Crisp antialiased vector warning sign (zero font dependency)
+                let warn_color = Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * alpha) as u8);
+                let warn_center = Pos2::new(rect.min.x + 18.0, center_y);
+                painter.circle_stroke(warn_center, 6.5, Stroke::new(1.5, warn_color));
+                painter.line_segment(
+                    [Pos2::new(warn_center.x, warn_center.y - 3.0), Pos2::new(warn_center.x, warn_center.y + 0.5)],
+                    Stroke::new(1.6, warn_color),
+                );
+                painter.circle_filled(
+                    Pos2::new(warn_center.x, warn_center.y + 3.0),
+                    1.0,
+                    warn_color,
                 );
 
                 let error_trunc = crate::notification::safe_truncate_chars(&message, 30);

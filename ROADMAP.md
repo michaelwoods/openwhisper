@@ -155,3 +155,84 @@ When the remote STT server goes down or returns errors (e.g., out-of-memory or m
 - Informative hover tooltips on the tray icon displaying latency and last error summary.
 - HUD error pills with descriptive troubleshooting messages (e.g., `"OVMS Unreachable (192.168.1.50:8000)"`).
 
+---
+
+## 10. Instant Physical Abort Key (`Escape` to Cancel Recording)
+
+### Motivation
+During dictation, users frequently change their mind, cough, sneeze, or realize they started with the wrong window focused. Reaching for a mouse or typing a terminal cancel command is too slow.
+
+### Planned Features
+- While an audio recording is active (in either Push-To-Talk hold or Toggle hands-free mode), listening for physical `KEY_ESC` via evdev immediately aborts the recording.
+- Plays an acoustic discard sound, hides the HUD overlay immediately, and prevents any API requests or text injection.
+
+---
+
+## 11. System Tray "Recent Dictations" Quick Re-Copy Menu
+
+### Motivation
+When a dictation is completed but the user accidentally closes the document or wasn't focused on the correct window, re-dictating identical text is frustrating.
+
+### Planned Features
+- Maintain an in-memory ring-buffer of the last 10 completed dictations in the daemon.
+- Expose a submenu in the `ksni` system tray (`StatusNotifierItem`):
+  - Lists the 5 most recent transcriptions (truncated with ellipsis).
+  - Clicking any recent item copies its full text to the system clipboard and displays a desktop notification confirmation.
+
+---
+
+## 12. Spoken Punctuation & Keyword Formatting Macros
+
+### Motivation
+Whisper models vary in how reliably they handle explicit punctuation instructions. Sometimes "new line" is transcribed literally as words, or users want to speak formatting commands without an LLM.
+
+### Planned Features
+- Configurable toggle: **"Parse Spoken Punctuation"**.
+- Post-processing regex mapping:
+  - `"new line"` / `"next line"` $\to$ `\n`
+  - `"new paragraph"` $\to$ `\n\n`
+  - `"period"` / `"full stop"` $\to$ `.`
+  - `"comma"` $\to$ `,`
+  - `"question mark"` $\to$ `?`
+  - `"exclamation mark"` / `"exclamation point"` $\to$ `!`
+  - `"colon"` $\to$ `:`
+  - `"semicolon"` $\to$ `;`
+
+---
+
+## 13. Custom Text Expansion & Snippets (Personal Dictionary)
+
+### Motivation
+Dictating complex technical email addresses, long URLs, boilerplate code blocks, or kaomoji/emojis by voice is error-prone.
+
+### Planned Features
+- Key-value snippet table in Settings:
+  - `"my email"` $\to$ `"user@example.com"`
+  - `"shrug"` $\to$ `"¯\_(ツ)_/¯"`
+  - `"jira ticket"` $\to$ `"https://jira.internal/browse/"`
+- Exact-phrase and regex substitution applied automatically during text post-processing.
+
+---
+
+## 14. Interactive Microphone VU Level Meter in Settings
+
+### Motivation
+Users configuring a new microphone or adjusting input gains need immediate visual confirmation that their microphone is picking up sound without having to test a full dictation.
+
+### Planned Features
+- Live animated RMS audio level meter bar in the "Audio & Recording" settings tab.
+- "Test Microphone" button that streams 3 seconds of capture audio, computing real-time RMS levels and indicating if the signal is clipping or too quiet.
+
+---
+
+## 15. Context-Aware Automatic Formatting (Smart App Profiles)
+
+### Motivation
+Dictating in a Linux terminal or IDE requires different formatting (lowercase, no trailing spaces/periods, snake_case) than writing an email or chat message in Thunderbird or Slack.
+
+### Planned Features
+- Query the active window's Wayland `app_id` or X11 `WM_CLASS` via KWin D-Bus (`org.kde.KWin`).
+- Configurable app profile rules:
+  - `alacritty`, `konsole`, `kitty`, `foot` $\to$ `Raw` or `SnakeCase`, no auto-capitalization, no trailing period.
+  - `slack`, `discord`, `telegram`, `thunderbird` $\to$ `Standard` sentence case with punctuation.
+

@@ -104,3 +104,54 @@ Spoken language frequently contains conversational artifacts such as filler word
   - **Bullet Points**: Condenses spoken thoughts into structured action items.
 - Configurable per-app rules (e.g. Terminal apps use Code style, email clients use Professional style).
 
+---
+
+## 6. Pre-Flight System Diagnostics (`openwhisper doctor`)
+
+### Motivation
+Diagnosing Wayland permissions, D-Bus session issues, remote inference endpoints, and audio capture devices during initial setup or troubleshooting should be instant and automated.
+
+### Planned Features
+- **CLI Diagnostic Command**: `openwhisper doctor` to inspect and output a health report:
+  - Configuration syntax and schema validation (`~/.config/openwhisper/config.toml`).
+  - `/dev/uinput` permissions and ACL verification (`user:$USER:rw-`).
+  - Active audio capture device availability, sample rate compatibility, and input level check.
+  - Remote STT endpoint reachability and latency probe (`http://frigg:8000/v1/audio/transcriptions`).
+  - KDE Plasma KWin rule inspection (`kwinrulesrc` position and reconfigure status).
+  - Evdev hardware keyboard device detection (`/dev/input/event*`).
+
+---
+
+## 7. Audio Hardware Resilience & Auto-Reconnection
+
+### Motivation
+USB microphones, wireless headsets, and Bluetooth audio devices can be disconnected, put into low-power sleep, or changed while the daemon is running.
+
+### Planned Features
+- **Device Watchdog**: Detect capture stream disconnections via `cpal` error callbacks.
+- **Graceful Fallback**: Automatically fall back to the system default capture device if the designated custom device disappears.
+- **Auto-Reconnect**: Seamlessly re-bind the preferred microphone when it is reconnected without requiring a daemon restart or manual reload.
+
+---
+
+## 8. Direct Virtual Keyboard Keystroke Injection (`/dev/uinput`)
+
+### Motivation
+In `output_mode = "type"`, spawning `wtype` or `ydotool` as external subprocesses introduces process fork latency (~15–25ms).
+
+### Planned Features
+- Expand the `/dev/uinput` virtual device in [`src/output/injector.rs`](src/output/injector.rs) to map full UTF-8 characters to standard evdev scancodes with Shift/AltGr state tracking.
+- Stream scancodes directly through `/dev/uinput` kernel ioctl for zero-fork, sub-millisecond typing.
+
+---
+
+## 9. Granular Tray & HUD Health Diagnostics
+
+### Motivation
+When the remote STT server goes down or returns errors (e.g., out-of-memory or model load errors), the user should immediately see clear diagnostic indicators.
+
+### Planned Features
+- Dynamic system tray icon status (Green = Ready, Yellow = Network Degraded / Reconnecting, Red = Error).
+- Informative hover tooltips on the tray icon displaying latency and last error summary.
+- HUD error pills with descriptive troubleshooting messages (e.g., `"OVMS Unreachable (192.168.1.50:8000)"`).
+

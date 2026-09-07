@@ -70,5 +70,9 @@ pub enum Commands {
 
     /// Run automated setup: install binary, icons, desktop entries, and systemd service
     Setup,
+
+    /// Launch interactive preview of the floating HUD overlay
+    #[command(alias = "test-hud", alias = "hud")]
+    HudDemo,
 }
 

@@ -6,7 +6,7 @@ This document details upcoming improvements, architectural additions, and multi-
 
 ## 1. Multi-Platform Backends
 
-While OpenWhisper currently targets Linux on Wayland (Fedora / KDE Plasma 6), the core architecture (in-memory audio processing, Whisper client, dual-mode hotkey engine, VAD, and sound generation) is fully cross-platform. Platform-specific backends are planned as follows:
+While OpenWhisper currently targets Linux on Wayland (Fedora / KDE Plasma 6), the core architecture (in-memory audio processing, Whisper client, dual-mode hotkey engine, VAD, sound generation, and floating HUD overlay) is fully cross-platform. Platform-specific backends are planned as follows:
 
 ### A. macOS Support
 - **Audio Capture**: Built-in support via `cpal` CoreAudio host.
@@ -17,7 +17,7 @@ While OpenWhisper currently targets Linux on Wayland (Fedora / KDE Plasma 6), th
   - Direct clipboard copy via `arboard` (`NSPasteboard`).
   - Keystroke synthesis for `Cmd+V` via `CGEventCreateKeyboardEvent(NULL, (CGKeyCode)9, true)` (`kVK_ANSI_V`) with `kCGEventFlagMaskCommand`.
 - **System Integration**:
-  - Status bar menu extra via `tray-icon` or native AppKit NSStatusItem.
+  - Status bar menu extra via native AppKit `NSStatusItem` or `tray-icon`.
   - User session background daemon managed via `~/Library/LaunchAgents/net.local.openwhisper.plist`.
 
 ### B. Windows Support
@@ -57,22 +57,3 @@ For lengthy dictation sessions, seeing words appear in real time reduces perceiv
     - Track the character length of the last interim token sequence.
     - Emit backspaces or replacement sequences to rewrite the active draft as Whisper's language model refines word choices based on extended acoustic context.
   - On release/silence, lock the finalized transcript into the active document.
-
----
-
-## 3. Minimal Status Overlay / Floating HUD
-
-### Motivation
-In addition to the system tray, a lightweight on-screen indicator provides immediate situational awareness without requiring the user to look at their taskbar or panel.
-
-### Specification
-- **Floating Pill Widget**:
-  - Rendered via a lightweight transparent layer-shell window (Wayland `zwlr_layer_shell_v1`, macOS floating `NSPanel`, or Windows `WS_EX_LAYERED`).
-  - Renders near the bottom-center of the active screen or pinned adjacent to the active text cursor.
-- **Live Visual Metrics**:
-  - **Status Badge**: Clear visual indication of state (Listening, Transcribing, Complete, Error).
-  - **Live Audio Meter**: Smooth real-time RMS audio waveform or level meter indicating mic sensitivity.
-  - **Recording Timer**: Compact elapsed timer showing dictation length.
-- **Auto-Hide & Translucency**:
-  - Automatically fades out smoothly once transcription is pasted.
-  - Click-through input passthrough to avoid intercepting user clicks.

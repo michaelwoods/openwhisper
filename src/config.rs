@@ -66,6 +66,25 @@ pub struct Config {
 
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
+
+    #[serde(default = "default_true")]
+    pub hud_enabled: bool,
+
+    #[serde(default = "default_hud_position")]
+    pub hud_position: HudPosition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HudPosition {
+    BottomCenter,
+    TopCenter,
+    BottomRight,
+    TopRight,
+}
+
+fn default_hud_position() -> HudPosition {
+    HudPosition::BottomCenter
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,6 +184,8 @@ impl Default for Config {
             vad_energy_threshold: default_vad_energy_threshold(),
             audio_device: None,
             socket_path: default_socket_path(),
+            hud_enabled: default_true(),
+            hud_position: default_hud_position(),
         }
     }
 }
@@ -306,5 +327,23 @@ mod tests {
         assert!(vad_cfg.enabled);
         assert_eq!(vad_cfg.silence_timeout, Duration::from_millis(2500));
         assert_eq!(vad_cfg.energy_threshold, 0.03);
+    }
+
+    #[test]
+    fn test_hud_config_defaults_and_parsing() {
+        let default_cfg = Config::default();
+        assert!(default_cfg.hud_enabled);
+        assert_eq!(default_cfg.hud_position, HudPosition::BottomCenter);
+
+        let custom = r#"
+            hud_enabled = false
+            hud_position = "top_center"
+        "#;
+        let parsed: Config = toml::from_str(custom).expect("Failed to parse HUD config");
+        assert!(!parsed.hud_enabled);
+        assert_eq!(parsed.hud_position, HudPosition::TopCenter);
+
+        let parsed_pos: HudPosition = serde_json::from_str(r#""bottom_right""#).unwrap();
+        assert_eq!(parsed_pos, HudPosition::BottomRight);
     }
 }

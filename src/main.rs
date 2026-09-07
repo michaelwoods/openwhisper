@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod gui;
 mod hotkey;
+mod hud;
 mod notification;
 mod output;
 mod setup;
@@ -160,6 +161,11 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
+        Commands::HudDemo => {
+            hud::run_hud_demo()?;
+            Ok(())
+        }
+
         Commands::Daemon { config: cfg_path } => {
             let active_config = if let Some(p) = cfg_path {
                 let content = std::fs::read_to_string(&p)
@@ -265,6 +271,9 @@ async fn run_daemon(config: Config) -> Result<()> {
     // Initialize StatusNotifierItem System Tray
     let (tray_ctrl, _) = tray::start_tray_service(active_config.socket_path.clone()).await;
 
+    // Initialize Floating HUD Overlay
+    let hud_ctrl = hud::start_hud_service(active_config.hud_enabled, active_config.hud_position);
+
     while let Some(cmd) = cmd_rx.recv().await {
         let action = {
             let mut eng = engine.lock().await;
@@ -288,6 +297,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                             notifications.write().await.set_enabled(new_cfg.show_notifications);
                             output_mgr.lock().await.update_config(&new_cfg);
                             eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
+                            hud_ctrl.set_enabled(new_cfg.hud_enabled);
+                            hud_ctrl.set_position(new_cfg.hud_position);
                             active_config = new_cfg;
                             tracing::info!("All daemon components updated with reloaded config.");
                         }
@@ -304,6 +315,7 @@ async fn run_daemon(config: Config) -> Result<()> {
             Action::StartRecording => {
                 tracing::info!("Action: StartRecording");
                 tray_ctrl.set_state(tray::TrayState::Recording);
+                hud_ctrl.set_recording();
                 notifications.read().await.recording_started();
                 sound.read().await.play(EarconType::RecordingStarted);
 
@@ -315,36 +327,45 @@ async fn run_daemon(config: Config) -> Result<()> {
                         let mut guard = active_recording.lock().await;
                         *guard = Some(rec);
 
-                        // If VAD is enabled, spawn background silence monitor
-                        if active_config.vad_enabled {
-                            let cmd_tx_vad = cmd_tx.clone();
-                            let vad_cfg = active_config.vad_config();
+                        // Spawn concurrent monitor for audio RMS visualizer and VAD silence gating
+                        let cmd_tx_vad = cmd_tx.clone();
+                        let vad_cfg = active_config.vad_config();
+                        let vad_enabled = active_config.vad_enabled;
+                        let hud_ctrl_monitor = hud_ctrl.clone();
 
-                            tokio::spawn(async move {
-                                let mut detector = VadDetector::new(vad_cfg);
-                                let mut read_idx = 0;
-                                while is_rec_handle.load(std::sync::atomic::Ordering::Relaxed) {
-                                    tokio::time::sleep(Duration::from_millis(100)).await;
-                                    if !is_rec_handle.load(std::sync::atomic::Ordering::Relaxed) {
-                                        break;
-                                    }
-                                    let chunk = {
-                                        if let Ok(guard) = sample_buf.lock() {
-                                            let total = guard.len();
-                                            if read_idx < total {
-                                                let slice = guard[read_idx..].to_vec();
-                                                read_idx = total;
-                                                slice
-                                            } else {
-                                                Vec::new()
-                                            }
+                        tokio::spawn(async move {
+                            let mut detector = if vad_enabled {
+                                Some(VadDetector::new(vad_cfg))
+                            } else {
+                                None
+                            };
+                            let mut read_idx = 0;
+                            while is_rec_handle.load(std::sync::atomic::Ordering::Relaxed) {
+                                tokio::time::sleep(Duration::from_millis(60)).await;
+                                if !is_rec_handle.load(std::sync::atomic::Ordering::Relaxed) {
+                                    break;
+                                }
+                                let chunk = {
+                                    if let Ok(guard) = sample_buf.lock() {
+                                        let total = guard.len();
+                                        if read_idx < total {
+                                            let slice = guard[read_idx..].to_vec();
+                                            read_idx = total;
+                                            slice
                                         } else {
                                             Vec::new()
                                         }
-                                    };
+                                    } else {
+                                        Vec::new()
+                                    }
+                                };
 
-                                    if !chunk.is_empty() {
-                                        if detector.process_chunk(&chunk, Instant::now())
+                                if !chunk.is_empty() {
+                                    let rms = VadDetector::calculate_rms(&chunk);
+                                    hud_ctrl_monitor.update_audio_level(rms);
+
+                                    if let Some(ref mut d) = detector {
+                                        if d.process_chunk(&chunk, Instant::now())
                                             == VadDecision::SilenceTimeout
                                         {
                                             tracing::info!(
@@ -355,12 +376,13 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         }
                                     }
                                 }
-                            });
-                        }
+                            }
+                        });
                     }
                     Err(err) => {
                         tracing::error!("Failed to start recording: {err}");
                         tray_ctrl.set_state(tray::TrayState::Error);
+                        hud_ctrl.set_error(&format!("Mic error: {err}"));
                         notifications.read().await.error(&format!("Mic error: {err}"));
                         sound.read().await.play(EarconType::Error);
                         let mut eng = engine.lock().await;
@@ -372,6 +394,7 @@ async fn run_daemon(config: Config) -> Result<()> {
             Action::StopAndTranscribe => {
                 tracing::info!("Action: StopAndTranscribe");
                 tray_ctrl.set_state(tray::TrayState::Transcribing);
+                hud_ctrl.set_transcribing();
                 notifications.read().await.transcribing();
                 sound.read().await.play(EarconType::RecordingStopped);
 
@@ -387,6 +410,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                     let sound_clone = Arc::clone(&sound);
                     let engine_clone = Arc::clone(&engine);
                     let tray_ctrl_clone = tray_ctrl.clone();
+                    let hud_ctrl_clone = hud_ctrl.clone();
 
                     let wav_res = rec.stop();
                     tokio::spawn(async move {
@@ -402,6 +426,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         let duration = start.elapsed().as_secs_f32();
                                         tracing::info!("Transcribed in {:.2}s: {:?}", duration, text);
                                         tray_ctrl_clone.set_state(tray::TrayState::Idle);
+                                        hud_ctrl_clone.set_completed(&text);
                                         notif_clone.read().await.transcribed(&text);
                                         sound_clone.read().await.play(EarconType::Transcribed);
 
@@ -415,6 +440,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                     Err(err) => {
                                         tracing::error!("Transcription error: {err}");
                                         tray_ctrl_clone.set_state(tray::TrayState::Error);
+                                        hud_ctrl_clone.set_error(&format!("STT failed: {err}"));
                                         let reset_ctrl = tray_ctrl_clone.clone();
                                         tokio::spawn(async move {
                                             tokio::time::sleep(Duration::from_secs(3)).await;
@@ -428,6 +454,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                             Err(err) => {
                                 tracing::error!("Audio stop/encoding error: {err}");
                                 tray_ctrl_clone.set_state(tray::TrayState::Error);
+                                hud_ctrl_clone.set_error("Audio encoding error");
                                 notif_clone.read().await.error(&format!("Audio encoding error: {err}"));
                                 sound_clone.read().await.play(EarconType::Error);
                             }
@@ -438,6 +465,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                     });
                 } else {
                     tray_ctrl.set_state(tray::TrayState::Idle);
+                    hud_ctrl.set_idle();
                     let mut eng = engine.lock().await;
                     eng.on_transcription_finished();
                 }
@@ -446,6 +474,7 @@ async fn run_daemon(config: Config) -> Result<()> {
             Action::CancelRecording => {
                 tracing::info!("Action: CancelRecording");
                 tray_ctrl.set_state(tray::TrayState::Idle);
+                hud_ctrl.set_idle();
                 let mut guard = active_recording.lock().await;
                 *guard = None;
                 notifications.read().await.error("Recording cancelled");

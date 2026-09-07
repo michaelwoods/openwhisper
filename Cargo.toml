@@ -43,4 +43,5 @@ eframe = { version = "0.35.0", default-features = false, features = ["glow", "wa
 zbus = { version = "5.5", features = ["tokio"] }
 evdev = "0.12"
 ksni = "0.3.6"
+winit = "0.30"
 

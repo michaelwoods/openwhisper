@@ -12,6 +12,14 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - **Push-To-Talk (PTT)**: Press and hold key to speak, release to immediately transcribe and paste.
   - **Hands-Free Toggle Mode**: Brief tap to start recording hands-free, tap again to finish and paste.
   - Seamlessly unified state machine with configurable threshold (`ptt_threshold_ms`, default: `350ms`).
+- 🖥️ **Minimal Floating Status Overlay (HUD)**:
+  - Frameless, translucent always-on-top pill widget rendered via `eframe` (Wayland + Glow).
+  - Non-focus-stealing (`with_active(false)`) to maintain uninterrupted keyboard focus in your active application.
+  - **Dynamic Real-Time Equalizer**: 5-bar animated audio visualizer responding dynamically to speech RMS amplitude in real time.
+  - **Elapsed Recording Timer**: Monospaced duration counter (`00:03.2`).
+  - **State Transitions**: Instant visual feedback for Recording (pulsing red dot), Transcribing (cyan acoustic orbit), Done (green checkmark and text snippet), and Error.
+  - **Smooth Auto-Hide**: Automatically fades out smoothly when dictation completes.
+  - Interactive standalone demo available via `openwhisper hud-demo`.
 - 🖥️ **StatusNotifierItem System Tray**:
   - Native KDE Plasma / Wayland D-Bus system tray item via `ksni`.
   - Dynamic state icons: Idle (slate mic), Recording (pulsing red indicator), Transcribing (cyan acoustic orbit), and Error (amber alert).
@@ -21,6 +29,7 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - Pure-Rust graphical window built with `egui` / `eframe` (Glow + Wayland).
   - **Live Connection & Latency Tester**: Tests STT endpoint responsiveness and model inference in real time.
   - **Interactive Audio Feedback**: Volume slider with live preview tone playback.
+  - **Floating HUD Settings**: Toggle HUD overlay and select screen position (`BottomCenter`, `TopCenter`, etc.).
   - **Formatting & Vocabulary Manager**: Configure casing modes and add/remove custom bias words.
   - **In-Memory IPC Reload**: Clicking "Save & Apply" persists `config.toml` and instantly reloads the running background daemon via IPC without restarting processes or dropping D-Bus/audio streams.
 - 🔊 **In-Memory Audio Feedback (Earcons)**:
@@ -74,11 +83,11 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
     │  ┌──────────────────┐    ┌─────────────────┐           │          │
     │  │   VAD Detector   │    │ Clipboard Mgr   │◀──────────┘          │
     │  │   (RMS Gating)   │    │ (wl-copy /      │     POST /v1/audio/  │
-    │  └──────────────────┘    │  arboard)       │     transcriptions   │
+    │  └─────────┬────────┘    │  arboard)       │     transcriptions   │
     │            │             └────────┬────────┘           │          │
     │            ▼                      ▼                    │          │
     │  ┌──────────────────┐    ┌─────────────────┐           │          │
-    │  │ StatusNotifier   │    │  Text Injector  │           │          │
+    │  │ Floating HUD &   │    │  Text Injector  │           │          │
     │  │ Tray & Earcons   │    │ (/dev/uinput    │           │          │
     │  └──────────────────┘    │  virtual Ctrl+V)│           │          │
     │                          └─────────────────┘           │          │
@@ -148,6 +157,10 @@ show_notifications = true
 sound_feedback = true
 sound_volume = 0.50
 
+# Floating on-screen status HUD overlay
+hud_enabled = true
+hud_position = "bottom_center" # Options: "bottom_center", "top_center", "bottom_right", "top_right"
+
 # Voice Activity Detection (RMS silence gating)
 vad_enabled = true
 vad_silence_timeout_ms = 1800
@@ -180,15 +193,16 @@ When updating settings via the GUI panel or editing `config.toml` manually, appl
 ```bash
 openwhisper reload
 ```
-The daemon reloads its configuration, updates STT endpoints, adjusts sound volumes, toggles VAD, and updates PTT thresholds in-memory immediately.
+The daemon reloads its configuration, updates STT endpoints, adjusts sound volumes, updates HUD settings, toggles VAD, and updates PTT thresholds in-memory immediately.
 
 ---
 
 ## Desktop Integration & Hotkeys
 
-### System Tray & GUI Panel
+### Floating HUD & System Tray
+- **Floating HUD Overlay**: OpenWhisper displays a minimalist floating pill at the bottom of the screen during dictation. As you speak, a live 5-bar audio visualizer reacts to your voice volume, accompanied by an elapsed timer and state notifications. When transcription completes, the HUD smoothly fades away. Test the visual layout anytime with `openwhisper hud-demo`.
 - **System Tray**: OpenWhisper runs as a StatusNotifierItem in your KDE Plasma panel or system tray. Left-click the microphone icon to toggle dictation or right-click to open Settings or Quit.
-- **Settings GUI**: Run `openwhisper config-gui` or select **Settings...** from the tray menu to inspect live server latency, test microphone audio levels, and tune parameters visually.
+- **Settings GUI**: Run `openwhisper config-gui` or select **Settings...** from the tray menu to inspect live server latency, test microphone audio levels, toggle HUD overlay, and tune parameters visually.
 
 ### Configuring Global Hotkeys in KDE Plasma 6
 1. Open **System Settings** $\rightarrow$ **Keyboard** $\rightarrow$ **Shortcuts**.
@@ -216,6 +230,7 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 | `openwhisper cancel` | | Cancels current recording |
 | `openwhisper status` | | Queries daemon status |
 | `openwhisper reload` | `reload-config` | Reloads daemon configuration live via IPC |
+| `openwhisper hud-demo` | `hud`, `test-hud`| Launches interactive preview of the floating HUD overlay |
 | `openwhisper config-gui`| `gui`, `settings`| Opens native graphical configuration panel |
 | `openwhisper record` | | Standalone one-shot recording (press Enter to finish) |
 | `openwhisper test-ovms` | | Tests connectivity and latency to STT endpoint |
@@ -228,4 +243,4 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 ## Documentation & Future Roadmap
 
 - 🤖 **[AGENTS.md](AGENTS.md)**: Developer and AI agent guide detailing architecture invariants, zero-disk memory constraints, and threading safety.
-- 🗺️ **[ROADMAP.md](ROADMAP.md)**: Technical specifications for upcoming multi-platform backends (macOS CoreAudio/CGEventTap, Windows WASAPI/SendInput, iOS keyboard extension), real-time streaming dictation, and minimalist floating HUD overlay.
+- 🗺️ **[ROADMAP.md](ROADMAP.md)**: Technical specifications for upcoming multi-platform backends (macOS CoreAudio/CGEventTap, Windows WASAPI/SendInput, iOS keyboard extension) and real-time streaming dictation.

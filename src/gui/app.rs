@@ -266,6 +266,32 @@ impl eframe::App for ConfigApp {
 
                 ui.add_space(6.0);
 
+                // Section: Floating Status Overlay (HUD)
+                ui.collapsing("🖥️ Floating Status Overlay (HUD)", |ui| {
+                    ui.checkbox(&mut self.config.hud_enabled, "Enable Floating HUD Overlay");
+
+                    if self.config.hud_enabled {
+                        ui.horizontal(|ui| {
+                            ui.label("Screen Position:");
+                            egui::ComboBox::from_id_salt("hud_position")
+                                .selected_text(match self.config.hud_position {
+                                    crate::config::HudPosition::BottomCenter => "Bottom Center (Default)",
+                                    crate::config::HudPosition::TopCenter => "Top Center",
+                                    crate::config::HudPosition::BottomRight => "Bottom Right",
+                                    crate::config::HudPosition::TopRight => "Top Right",
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.config.hud_position, crate::config::HudPosition::BottomCenter, "Bottom Center");
+                                    ui.selectable_value(&mut self.config.hud_position, crate::config::HudPosition::TopCenter, "Top Center");
+                                    ui.selectable_value(&mut self.config.hud_position, crate::config::HudPosition::BottomRight, "Bottom Right");
+                                    ui.selectable_value(&mut self.config.hud_position, crate::config::HudPosition::TopRight, "Top Right");
+                                });
+                        });
+                    }
+                });
+
+                ui.add_space(6.0);
+
                 // Section 4: Voice Activity Detection (VAD)
                 ui.collapsing("🎙️ Voice Activity Detection (VAD Auto-Stop)", |ui| {
                     ui.checkbox(&mut self.config.vad_enabled, "Enable Silence Auto-Stop");

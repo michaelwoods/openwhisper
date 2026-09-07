@@ -234,6 +234,7 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 | `openwhisper config-gui`| `gui`, `settings`| Opens native graphical configuration panel |
 | `openwhisper record` | | Standalone one-shot recording (press Enter to finish) |
 | `openwhisper test-ovms` | | Tests connectivity and latency to STT endpoint |
+| `openwhisper test-hotkey` | `test-key`, `sniff-keys` | Real-time evdev hardware key sniffer (inspect scancodes & hold times) |
 | `openwhisper setup` | | Automated setup: installs binary, icons, desktop files, and systemd |
 | `openwhisper list-devices`| | Lists available microphone audio devices |
 | `openwhisper init-config`| | Initializes default `~/.config/openwhisper/config.toml` |

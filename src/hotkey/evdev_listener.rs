@@ -176,11 +176,11 @@ fn read_device_events(
                     if ev.event_type() == EventType::KEY && ev.code() == target_key.code() {
                         match ev.value() {
                             1 => {
-                                tracing::debug!("evdev hotkey pressed on {:?}", path);
+                                tracing::info!("evdev hotkey {:?} (code {}) pressed on {:?}", target_key, target_key.code(), path);
                                 let _ = cmd_tx.blocking_send(IpcCommand::PttDown);
                             }
                             0 => {
-                                tracing::debug!("evdev hotkey released on {:?}", path);
+                                tracing::info!("evdev hotkey {:?} (code {}) released on {:?}", target_key, target_key.code(), path);
                                 let _ = cmd_tx.blocking_send(IpcCommand::PttUp);
                             }
                             2 => {
@@ -202,6 +202,78 @@ fn read_device_events(
         l.remove(&path);
     }
     tracing::debug!("evdev reader thread for {:?} exited", path);
+}
+
+#[cfg(target_os = "linux")]
+pub fn run_test_hotkey() -> anyhow::Result<()> {
+    use std::time::Instant;
+
+    println!("🔍 Monitoring /dev/input keyboard devices in real-time...");
+    println!("👉 Press, hold, and release your Fn+F9 key (or any other key) to inspect its hardware behavior.");
+    println!("Press Ctrl+C to exit.\n");
+
+    let devices = evdev::enumerate();
+    let start_time = Instant::now();
+
+    for (_path, mut device) in devices {
+        if let Some(name) = device.name() {
+            if name.contains("OpenWhisper") {
+                continue;
+            }
+        }
+
+        if device.supported_keys().is_none() {
+            continue;
+        }
+
+        let dev_name = device.name().unwrap_or("Unknown").to_string();
+
+        thread::spawn(move || {
+            let mut last_press: Option<Instant> = None;
+            while let Ok(events) = device.fetch_events() {
+                for ev in events {
+                    if ev.event_type() == EventType::KEY {
+                        let key = Key::new(ev.code());
+                        let elapsed_total = start_time.elapsed().as_secs_f32();
+                        match ev.value() {
+                            1 => {
+                                last_press = Some(Instant::now());
+                                println!(
+                                    "[{:.3}s] [{}] Pressed: {:?} (code {})",
+                                    elapsed_total, dev_name, key, ev.code()
+                                );
+                            }
+                            0 => {
+                                let hold_ms = last_press.map(|t| t.elapsed().as_millis()).unwrap_or(0);
+                                println!(
+                                    "[{:.3}s] [{}] Released: {:?} (code {}) after {}ms hold",
+                                    elapsed_total, dev_name, key, ev.code(), hold_ms
+                                );
+                            }
+                            2 => {
+                                println!(
+                                    "[{:.3}s] [{}] Repeat: {:?} (code {})",
+                                    elapsed_total, dev_name, key, ev.code()
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Keep main thread alive until user interrupts
+    loop {
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn run_test_hotkey() -> anyhow::Result<()> {
+    println!("Hardware key testing is only available on Linux.");
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]

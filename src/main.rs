@@ -166,6 +166,11 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
+        Commands::TestHotkey => {
+            hotkey::run_test_hotkey()?;
+            Ok(())
+        }
+
         Commands::Daemon { config: cfg_path } => {
             let active_config = if let Some(p) = cfg_path {
                 let content = std::fs::read_to_string(&p)
@@ -285,6 +290,7 @@ async fn run_daemon(config: Config) -> Result<()> {
     let hud_ctrl = hud::start_hud_service(active_config.hud_enabled, active_config.hud_position);
 
     while let Some(cmd) = cmd_rx.recv().await {
+        tracing::info!("Daemon event loop received: {:?}", cmd);
         let action = {
             let mut eng = engine.lock().await;
             match cmd {

@@ -109,6 +109,9 @@ openwhisper status
 
 # 5. Send toggle command to running daemon
 openwhisper toggle
+
+# 6. Sniff real-time hardware key scancodes and hold durations
+openwhisper test-hotkey
 ```
 
 ---

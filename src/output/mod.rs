@@ -62,9 +62,27 @@ impl OutputManager {
                 set_clipboard(text)?;
             }
             OutputMode::Type => {
+                let prev_clip = if self.restore_clipboard {
+                    clipboard::get_clipboard()
+                } else {
+                    None
+                };
+
                 // Ensure text is stored in clipboard as a fallback for manual pasting if target window loses focus
                 set_clipboard(text)?;
                 self.injector.type_text(text)?;
+
+                if let Some(prev) = prev_clip {
+                    if prev != text {
+                        std::thread::spawn(move || {
+                            // In type mode, keep transcription on clipboard for 5 seconds so user has time
+                            // to manually paste if target lost focus, then restore previous clipboard.
+                            std::thread::sleep(std::time::Duration::from_millis(5000));
+                            let _ = set_clipboard(&prev);
+                            tracing::debug!("Restored previous clipboard contents after type fallback window");
+                        });
+                    }
+                }
             }
         }
         Ok(())

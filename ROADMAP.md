@@ -84,10 +84,9 @@ Users often dictate thoughts, messages, or code snippets that they need to refer
 ### Motivation
 High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2) require hundreds of paired `.wav` audio files and matching text transcripts to train or fine-tune personalized synthetic voices.
 
-### Implementation
-- Configurable `save_audio_dir` setting (e.g. `~/Recordings/openwhisper/`).
-- When enabled, every dictation automatically saves a timestamped `whisper_YYYYMMDD_HHMMSS.wav` (16kHz mono) and paired `whisper_YYYYMMDD_HHMMSS.txt` transcript.
-- Built-in data export tool (`openwhisper export-tts-dataset`) to generate standard metadata manifests (`metadata.csv` / LJSpeech format) ready for TTS training pipelines.
+### Status & Planned Enhancements
+- **[Completed] Paired Audio & Transcript Recording**: Configurable `save_audio_dir` setting (via GUI or `config.toml`) automatically saves paired timestamped `.wav` (16kHz mono) and `.txt` transcripts for every dictation.
+- **[Planned] Dataset Exporter & Manifest Tool**: Built-in CLI tool (`openwhisper export-tts-dataset`) to scan the recordings directory, validate audio lengths, filter out silences/noise, and package standard metadata manifests (`metadata.csv` / LJSpeech format) directly usable by Piper, XTTS, and F5-TTS training scripts.
 
 ---
 

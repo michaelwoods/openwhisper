@@ -276,7 +276,7 @@ export component SettingsWindow inherits Window {
                             VerticalBox {
                                 spacing: 8px;
                                 CheckBox {
-                                    text: "Enable Acoustic Feedback (In-Memory Earcons)";
+                                    text: "Enable Sound Effects (Recording & Completion Chimes)";
                                     checked <=> root.sound-enabled;
                                 }
 
@@ -290,7 +290,7 @@ export component SettingsWindow inherits Window {
                                             vertical-alignment: center;
                                         }
                                         Button {
-                                            text: "Play Test Earcon";
+                                            text: "Play Test Sound";
                                             clicked => { root.test-sound(); }
                                         }
                                     }

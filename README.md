@@ -70,11 +70,13 @@ cargo build --release
 ```
 The optimized release binary is generated at `target/release/openwhisper`.
 
-You can install it to your user binaries directory:
+You can install it system-wide (accessible in all shells and systemd):
 ```bash
-mkdir -p ~/.local/bin
-cp target/release/openwhisper ~/.local/bin/
+sudo cp target/release/openwhisper /usr/local/bin/openwhisper
 ```
+*(Or install locally to `~/.local/bin/openwhisper`)*.
+
+> **Note for Zsh users**: If you have an existing terminal session open, run `rehash` so Zsh refreshes its command table and detects `openwhisper`.
 
 ### 2. Configure OpenWhisper
 Generate the default configuration file:
@@ -166,9 +168,7 @@ systemctl --user status openwhisper.service
 
 ---
 
-## Multi-Platform Roadmap
+## Documentation & Contributing
 
-- **Linux (Wayland & X11)**: Implemented via `cpal` + `evdev`/`/dev/uinput` + `wl-copy`/`arboard` + XDG Desktop Portal.
-- **macOS**: `cpal` (CoreAudio) + `rdev` / `CGEventPost` for immediate text injection + `arboard` clipboard.
-- **Windows**: `cpal` (WASAPI) + `SendInput` for typing/pasting + Windows Global Hotkey API.
-- **iOS**: Audio capture via AVFoundation / CoreAudio audio unit with background audio transcription.
+- 🤖 **[AGENTS.md](AGENTS.md)**: Orientation guide for autonomous agents and developers in Antigravity IDE (architecture invariants, zero-disk in-memory pipeline, permissions, and debugging).
+- 🗺️ **[ROADMAP.md](ROADMAP.md)**: Technical specifications for planned improvements (audio earcons, contextual prompting, VAD, macOS/Windows/iOS platform backends).

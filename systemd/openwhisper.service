@@ -4,7 +4,7 @@ After=pipewire.service sound.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/openwhisper daemon
+ExecStart=/usr/local/bin/openwhisper daemon
 Restart=on-failure
 RestartSec=3
 Environment=RUST_LOG=info

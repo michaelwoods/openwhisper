@@ -142,6 +142,31 @@ pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcR
     Ok(response)
 }
 
+/// Synchronous IPC client sending a command over Unix domain socket.
+/// Safe to call from UI threads and non-async contexts without initiating a Tokio runtime.
+#[cfg(target_os = "linux")]
+pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+
+    let mut stream = UnixStream::connect(socket_path)
+        .with_context(|| format!("OpenWhisper daemon is not running (cannot connect to {})", socket_path))?;
+
+    let payload = serde_json::to_vec(&cmd)?;
+    stream.write_all(&payload)?;
+
+    let mut buf = vec![0u8; 1024];
+    let n = stream.read(&mut buf)?;
+    let response: IpcResponse = serde_json::from_slice(&buf[..n])
+        .context("Invalid response from OpenWhisper daemon")?;
+    Ok(response)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn send_ipc_command_sync(_socket_path: &str, _cmd: IpcCommand) -> Result<IpcResponse> {
+    anyhow::bail!("IPC not supported on this platform")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

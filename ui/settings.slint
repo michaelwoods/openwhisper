@@ -94,12 +94,14 @@ export component SettingsWindow inherits Window {
                 title: "Endpoint";
                 ScrollView {
                     VerticalBox {
+                        alignment: start;
                         padding: 10px;
                         spacing: 12px;
 
                         GroupBox {
                             title: "Speech-to-Text Server";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 Text { text: "Server URL:"; font-size: 12px; }
                                 LineEdit {
@@ -125,6 +127,7 @@ export component SettingsWindow inherits Window {
                         GroupBox {
                             title: "Transcription Options";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 Text { text: "Language (leave empty for auto-detect):"; font-size: 12px; }
                                 LineEdit {
@@ -148,6 +151,8 @@ export component SettingsWindow inherits Window {
                                 clicked => { root.test-connection(); }
                             }
                         }
+
+                        Rectangle { vertical-stretch: 1; }
                     }
                 }
             }
@@ -156,12 +161,14 @@ export component SettingsWindow inherits Window {
                 title: "Hotkey & Text";
                 ScrollView {
                     VerticalBox {
+                        alignment: start;
                         padding: 10px;
                         spacing: 12px;
 
                         GroupBox {
                             title: "Direct Linux evdev Push-to-Talk";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 CheckBox {
                                     text: "Enable Direct Hardware Hotkey (Linux evdev Push-to-Talk)";
@@ -169,6 +176,7 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 if root.evdev-enabled: VerticalBox {
+                                    alignment: start;
                                     spacing: 6px;
                                     Text { text: "Hardware Keycode Identifier:"; font-size: 12px; }
                                     HorizontalLayout {
@@ -216,6 +224,7 @@ export component SettingsWindow inherits Window {
                         GroupBox {
                             title: "Text Insertion";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 Text { text: "Output Mode:"; font-size: 12px; }
                                 ComboBox {
@@ -244,6 +253,8 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
+
+                        Rectangle { vertical-stretch: 1; }
                     }
                 }
             }
@@ -252,12 +263,14 @@ export component SettingsWindow inherits Window {
                 title: "Feedback & HUD";
                 ScrollView {
                     VerticalBox {
+                        alignment: start;
                         padding: 10px;
                         spacing: 12px;
 
                         GroupBox {
                             title: "Audio Input & Recording";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 Text { text: "Microphone / Input Device:"; font-size: 12px; }
                                 ComboBox {
@@ -267,6 +280,7 @@ export component SettingsWindow inherits Window {
 
                                 // Interactive Microphone VU Level Meter
                                 VerticalBox {
+                                    alignment: start;
                                     spacing: 5px;
                                     padding-top: 4px;
                                     padding-bottom: 4px;
@@ -327,6 +341,7 @@ export component SettingsWindow inherits Window {
                         GroupBox {
                             title: "Audio Feedback";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 CheckBox {
                                     text: "Enable Sound Effects (Recording & Completion Chimes)";
@@ -334,6 +349,7 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 if root.sound-enabled: VerticalBox {
+                                    alignment: start;
                                     spacing: 6px;
                                     HorizontalLayout {
                                         spacing: 8px;
@@ -360,6 +376,7 @@ export component SettingsWindow inherits Window {
                         GroupBox {
                             title: "Floating HUD & Notifications";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 CheckBox {
                                     text: "Show Desktop Notification Toasts (libnotify)";
@@ -372,6 +389,7 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 if root.hud-enabled: VerticalBox {
+                                    alignment: start;
                                     spacing: 6px;
                                     Text { text: "HUD Screen Position:"; font-size: 12px; }
                                     ComboBox {
@@ -388,6 +406,8 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
+
+                        Rectangle { vertical-stretch: 1; }
                     }
                 }
             }
@@ -396,12 +416,14 @@ export component SettingsWindow inherits Window {
                 title: "VAD & Formatting";
                 ScrollView {
                     VerticalBox {
+                        alignment: start;
                         padding: 10px;
                         spacing: 12px;
 
                         GroupBox {
                             title: "Voice Activity Detection (Auto-Stop)";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 CheckBox {
                                     text: "Enable Voice Activity Detection (Stops when you finish speaking)";
@@ -409,6 +431,7 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 if root.vad-enabled: VerticalBox {
+                                    alignment: start;
                                     spacing: 6px;
                                     Text {
                                         text: "Silence Timeout: " + root.vad-silence-timeout + " ms";
@@ -438,6 +461,7 @@ export component SettingsWindow inherits Window {
                         GroupBox {
                             title: "Text Formatting";
                             VerticalBox {
+                                alignment: start;
                                 spacing: 8px;
                                 Text { text: "Formatting Mode:"; font-size: 12px; }
                                 ComboBox {
@@ -451,6 +475,8 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
+
+                        Rectangle { vertical-stretch: 1; }
                     }
                 }
             }
@@ -459,6 +485,7 @@ export component SettingsWindow inherits Window {
                 title: "Vocabulary";
                 ScrollView {
                     VerticalBox {
+                        alignment: start;
                         padding: 10px;
                         spacing: 10px;
 
@@ -498,6 +525,7 @@ export component SettingsWindow inherits Window {
                         }
 
                         VerticalBox {
+                            alignment: start;
                             spacing: 4px;
                             for word[idx] in root.vocab-words: HorizontalLayout {
                                 spacing: 8px;
@@ -513,6 +541,8 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
+
+                        Rectangle { vertical-stretch: 1; }
                     }
                 }
             }

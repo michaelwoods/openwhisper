@@ -421,18 +421,13 @@ pub fn run_gui(config: Config) -> Result<()> {
         let child_handle = preview_child.clone();
         ui.on_preview_hud(move || {
             // 1. If daemon is running, trigger seamless preview on daemon's existing HUD
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
             let mut sent_ipc = false;
-            if let Ok(rt) = rt {
-                if let Ok(res) = rt.block_on(crate::hotkey::ipc::send_ipc_command(
-                    &socket_path,
-                    crate::hotkey::ipc::IpcCommand::PreviewHud,
-                )) {
-                    if res.status == "ok" {
-                        sent_ipc = true;
-                    }
+            if let Ok(res) = crate::hotkey::ipc::send_ipc_command_sync(
+                &socket_path,
+                crate::hotkey::ipc::IpcCommand::PreviewHud,
+            ) {
+                if res.status == "ok" {
+                    sent_ipc = true;
                 }
             }
 
@@ -592,18 +587,13 @@ pub fn run_gui(config: Config) -> Result<()> {
             match cfg.save() {
                 Ok(_) => {
                     let socket_path = cfg.socket_path.clone();
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build();
                     let mut reloaded = false;
-                    if let Ok(rt) = rt {
-                        if let Ok(res) = rt.block_on(crate::hotkey::ipc::send_ipc_command(
-                            &socket_path,
-                            crate::hotkey::ipc::IpcCommand::ReloadConfig,
-                        )) {
-                            if res.status == "ok" {
-                                reloaded = true;
-                            }
+                    if let Ok(res) = crate::hotkey::ipc::send_ipc_command_sync(
+                        &socket_path,
+                        crate::hotkey::ipc::IpcCommand::ReloadConfig,
+                    ) {
+                        if res.status == "ok" {
+                            reloaded = true;
                         }
                     }
 

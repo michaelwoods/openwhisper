@@ -483,6 +483,98 @@ pub fn run_gui(config: Config) -> Result<()> {
         });
     }
 
+    // Callback: Test Microphone VU Level Meter
+    {
+        let ui_weak = ui.as_weak();
+        let device_items = device_items.clone();
+        ui.on_test_mic(move || {
+            let Some(ui) = ui_weak.upgrade() else { return; };
+            let dev_idx = ui.get_audio_device_index() as usize;
+            let device_name = if dev_idx > 0 && dev_idx < device_items.len() {
+                Some(device_items[dev_idx].clone())
+            } else {
+                None
+            };
+
+            ui.set_testing_mic(true);
+            ui.set_mic_clipping(false);
+            ui.set_mic_test_level(0.0);
+            ui.set_mic_level_text(SharedString::from("Listening... Speak into your microphone"));
+
+            let ui_bg = ui_weak.clone();
+            std::thread::spawn(move || {
+                let ui_level = ui_bg.clone();
+                let res = crate::audio::AudioRecorder::test_input_levels(
+                    device_name,
+                    std::time::Duration::from_millis(3500),
+                    None,
+                    move |level, clipping| {
+                        let ui_cb = ui_level.clone();
+                        let _ = ui_cb.upgrade_in_event_loop(move |ui| {
+                            ui.set_mic_test_level(level);
+                            ui.set_mic_clipping(clipping);
+                            let percent = (level * 100.0).round() as u32;
+                            if clipping {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Level: {}% — ⚠️ Clipping! Lower microphone input gain",
+                                    percent
+                                )));
+                            } else if level > 0.65 {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Level: {}% (Strong Signal)",
+                                    percent
+                                )));
+                            } else if level > 0.15 {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Level: {}% (Good Signal)",
+                                    percent
+                                )));
+                            } else {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Level: {}% (Quiet / Background)",
+                                    percent
+                                )));
+                            }
+                        });
+                    },
+                );
+
+                let _ = ui_bg.upgrade_in_event_loop(move |ui| {
+                    ui.set_testing_mic(false);
+                    ui.set_mic_test_level(0.0);
+                    ui.set_mic_clipping(false);
+                    match res {
+                        Ok(peak) => {
+                            let peak_percent = (peak * 100.0).round() as u32;
+                            if peak >= 0.80 {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Test complete — Peak level: {}% (⚠️ Caution: Audio clipped)",
+                                    peak_percent
+                                )));
+                            } else if peak >= 0.20 {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Test complete — Peak level: {}% (Optimal speech level)",
+                                    peak_percent
+                                )));
+                            } else {
+                                ui.set_mic_level_text(SharedString::from(format!(
+                                    "Test complete — Peak level: {}% (Very quiet — speak closer to mic)",
+                                    peak_percent
+                                )));
+                            }
+                        }
+                        Err(err) => {
+                            ui.set_mic_level_text(SharedString::from(format!(
+                                "Failed to access microphone: {err}"
+                            )));
+                            ui.set_mic_clipping(true);
+                        }
+                    }
+                });
+            });
+        });
+    }
+
     // Callback: Save & Apply
     {
         let ui_weak = ui.as_weak();
@@ -661,6 +753,16 @@ mod tests {
         assert_eq!(ui.get_formatting_mode_index(), 3);
         ui.set_trailing_space(false);
         assert!(!ui.get_trailing_space());
+
+        // Test Microphone VU Level properties
+        ui.set_mic_test_level(0.65);
+        assert!((ui.get_mic_test_level() - 0.65).abs() < 1e-4);
+        ui.set_testing_mic(true);
+        assert!(ui.get_testing_mic());
+        ui.set_mic_clipping(true);
+        assert!(ui.get_mic_clipping());
+        ui.set_mic_level_text(SharedString::from("Level: 65% (Strong Signal)"));
+        assert_eq!(ui.get_mic_level_text().as_str(), "Level: 65% (Strong Signal)");
 
         // --- 2. Full Roundtrip: Config -> UI -> Config ---
         let vocab_model = Rc::new(VecModel::default());

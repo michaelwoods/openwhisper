@@ -156,6 +156,49 @@ impl AudioRecorder {
             started_at: Instant::now(),
         })
     }
+
+    /// Tests microphone input levels for `duration`, invoking `on_level(normalized_rms, is_clipping)`
+    /// every ~50ms. Returns the peak level reached.
+    pub fn test_input_levels<F>(
+        device_name: Option<String>,
+        duration: std::time::Duration,
+        cancel_signal: Option<Arc<AtomicBool>>,
+        mut on_level: F,
+    ) -> Result<f32>
+    where
+        F: FnMut(f32, bool),
+    {
+        let recorder = AudioRecorder::new(device_name);
+        let active = recorder.start_recording()?;
+        let start_time = Instant::now();
+        let mut last_read_idx = 0;
+        let mut peak_level = 0.0f32;
+
+        while start_time.elapsed() < duration {
+            if let Some(ref cancel) = cancel_signal {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let (new_samples, new_idx) = active.copy_samples_from(last_read_idx);
+            last_read_idx = new_idx;
+
+            if !new_samples.is_empty() {
+                let rms = crate::audio::vad::VadDetector::calculate_rms(&new_samples);
+                // Normalized meter value: speech typically produces RMS between 0.03 and 0.15
+                let normalized = (rms * 6.5).clamp(0.0, 1.0);
+                let is_clipping = new_samples.iter().any(|&s| s.abs() >= 0.98) || rms >= 0.75;
+                if normalized > peak_level {
+                    peak_level = normalized;
+                }
+                on_level(normalized, is_clipping);
+            }
+        }
+
+        active.is_recording.store(false, Ordering::Relaxed);
+        Ok(peak_level)
+    }
 }
 
 impl ActiveRecording {
@@ -321,5 +364,21 @@ mod tests {
         assert_eq!(std::fs::read_to_string(txt_file).unwrap(), transcript);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_input_levels_cancellation() {
+        let cancel = Arc::new(AtomicBool::new(true));
+        // Verify cancel signal stops loop without hanging
+        let res = AudioRecorder::test_input_levels(
+            None,
+            std::time::Duration::from_millis(500),
+            Some(cancel),
+            |_lvl, _clip| {},
+        );
+        // Either Ok(0.0) if device present or Err if headless
+        if let Ok(peak) = res {
+            assert!(peak >= 0.0 && peak <= 1.0);
+        }
     }
 }

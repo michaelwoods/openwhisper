@@ -136,12 +136,8 @@ USB microphones, wireless headsets, and Bluetooth audio devices can be disconnec
 
 ## 8. Direct Virtual Keyboard Keystroke Injection (`/dev/uinput`)
 
-### Motivation
-In `output_mode = "type"`, spawning `wtype` or `ydotool` as external subprocesses introduces process fork latency (~15–25ms).
-
-### Planned Features
-- Expand the `/dev/uinput` virtual device in [`src/output/injector.rs`](src/output/injector.rs) to map full UTF-8 characters to standard evdev scancodes with Shift/AltGr state tracking.
-- Stream scancodes directly through `/dev/uinput` kernel ioctl for zero-fork, sub-millisecond typing.
+### Status
+- **[Completed]**: Expanded `VirtualDeviceBuilder` to register all standard alphanumeric, whitespace, and punctuation keys. Direct kernel keystroke typing via `/dev/uinput` with shift modifier management and 2ms inter-key cadence, bypassing external process fork overhead (`wtype`/`ydotool`) for ASCII text while preserving `wtype` fallback for international characters.
 
 ---
 
@@ -206,12 +202,8 @@ Dictating complex technical email addresses, long URLs, boilerplate code blocks,
 
 ## 14. Interactive Microphone VU Level Meter in Settings
 
-### Motivation
-Users configuring a new microphone or adjusting input gains need immediate visual confirmation that their microphone is picking up sound without having to test a full dictation.
-
-### Planned Features
-- Live animated RMS audio level meter bar in the "Audio & Recording" settings tab.
-- "Test Microphone" button that streams 3 seconds of capture audio, computing real-time RMS levels and indicating if the signal is clipping or too quiet.
+### Status
+- **[Completed]**: Added an interactive VU level meter to the "Audio Input & Recording" section of the Slint Settings GUI (`ui/settings.slint`). Real-time animated RMS level bar with color scaling (green -> yellow -> alert red on clipping), live dB/percentage status labels, and a 3.5-second test capture helper in `src/audio/recorder.rs` with peak level reporting.
 
 ---
 

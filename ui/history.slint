@@ -20,6 +20,7 @@ export component HistoryWindow inherits Window {
     in-out property <string> summary-text: "Loading history...";
     in-out property <string> toast-text: "";
     in-out property <bool> is-empty: false;
+    in-out property <int> playing-id: -1;
 
     callback search-changed(string);
     callback play-item(int);
@@ -61,6 +62,7 @@ export component HistoryWindow inherits Window {
                 placeholder-text: "🔍  Search past transcriptions...";
                 horizontal-stretch: 1;
                 edited(query) => {
+                    root.toast-text = "";
                     root.search-changed(query);
                 }
             }
@@ -68,6 +70,7 @@ export component HistoryWindow inherits Window {
             if root.search-query != "": Button {
                 text: "✕ Clear";
                 clicked => {
+                    root.toast-text = "";
                     root.search-query = "";
                     root.search-changed("");
                 }
@@ -170,7 +173,7 @@ export component HistoryWindow inherits Window {
                         HorizontalLayout {
                             spacing: 8px;
                             if item.has_audio: Button {
-                                text: "▶ Play";
+                                text: root.playing-id == item.id ? "⏹ Stop" : "▶ Play";
                                 clicked => {
                                     root.play-item(item.id);
                                 }

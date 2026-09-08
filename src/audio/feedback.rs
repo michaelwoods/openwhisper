@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EarconType {
@@ -163,10 +163,14 @@ fn play_earcon_internal(earcon: EarconType, volume: f32) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Synchronously plays a recorded WAV audio file, blocking until playback completes.
+/// Plays a recorded WAV audio file, polling for cancellation via `stop_flag`.
+/// Returns Ok(true) if played to completion, or Ok(false) if stopped/cancelled.
 /// Tries standard desktop PipeWire / ALSA audio utilities (pw-play, paplay, aplay) first,
 /// falling back to cross-platform native decoding via hound + cpal.
-pub fn play_wav_file_blocking(path: &std::path::Path) -> anyhow::Result<()> {
+pub fn play_wav_file_cancellable(
+    path: &std::path::Path,
+    stop_flag: Arc<AtomicBool>,
+) -> anyhow::Result<bool> {
     if !path.exists() {
         anyhow::bail!("Audio file does not exist: {:?}", path);
     }
@@ -176,18 +180,42 @@ pub fn play_wav_file_blocking(path: &std::path::Path) -> anyhow::Result<()> {
             .arg(path)
             .spawn()
         {
-            let status = child.wait()?;
-            if status.success() {
-                return Ok(());
+            while !stop_flag.load(Ordering::Relaxed) {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        return Ok(status.success());
+                    }
+                    Ok(None) => {
+                        thread::sleep(Duration::from_millis(40));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Error polling audio player process {cmd}: {e}");
+                        break;
+                    }
+                }
+            }
+
+            if stop_flag.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(false);
             }
         }
     }
 
     // Cross-platform native decoding fallback via hound + cpal
-    play_wav_native(path)
+    play_wav_native_cancellable(path, stop_flag)
+}
+
+/// Synchronously plays a recorded WAV audio file, blocking until playback completes.
+pub fn play_wav_file_blocking(path: &std::path::Path) -> anyhow::Result<()> {
+    let dummy_flag = Arc::new(AtomicBool::new(false));
+    let _ = play_wav_file_cancellable(path, dummy_flag)?;
+    Ok(())
 }
 
 /// Asynchronously plays a recorded WAV audio file in a background thread.
+#[allow(dead_code)]
 pub fn play_wav_file(path: &std::path::Path) -> anyhow::Result<()> {
     if !path.exists() {
         anyhow::bail!("Audio file does not exist: {:?}", path);
@@ -203,7 +231,10 @@ pub fn play_wav_file(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn play_wav_native(path: &std::path::Path) -> anyhow::Result<()> {
+fn play_wav_native_cancellable(
+    path: &std::path::Path,
+    stop_flag: Arc<AtomicBool>,
+) -> anyhow::Result<bool> {
     let mut reader = hound::WavReader::open(path)?;
     let spec = reader.spec();
     let wav_samples: Vec<f32> = match spec.sample_format {
@@ -219,7 +250,7 @@ fn play_wav_native(path: &std::path::Path) -> anyhow::Result<()> {
     };
 
     if wav_samples.is_empty() {
-        return Ok(());
+        return Ok(true);
     }
 
     let host = cpal::default_host();
@@ -288,9 +319,18 @@ fn play_wav_native(path: &std::path::Path) -> anyhow::Result<()> {
     )?;
 
     stream.play()?;
-    thread::sleep(Duration::from_millis(duration_ms + 80));
+
+    let start = Instant::now();
+    let max_dur = Duration::from_millis(duration_ms + 80);
+    while start.elapsed() < max_dur
+        && !stop_flag.load(Ordering::Relaxed)
+        && !is_done.load(Ordering::Relaxed)
+    {
+        thread::sleep(Duration::from_millis(40));
+    }
+
     drop(stream);
-    Ok(())
+    Ok(!stop_flag.load(Ordering::Relaxed))
 }
 
 /// Generates mono floating-point audio samples for a specific earcon.

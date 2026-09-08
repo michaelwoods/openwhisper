@@ -10,6 +10,7 @@ cd "$SCRIPT_DIR"
 echo "==> Building OpenWhisper release binary..."
 export CARGO_HOME="${CARGO_HOME:-$HOME/.cache/puccinialin/cargo}"
 export PATH="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$CARGO_HOME/bin:$PATH"
+export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig:$HOME/.local/share/pkgconfig:${PKG_CONFIG_PATH:-}:/usr/lib64/pkgconfig:/usr/share/pkgconfig"
 cargo build --release
 
 BIN_SOURCE="$SCRIPT_DIR/target/release/openwhisper"
@@ -34,12 +35,47 @@ install -Dm755 "$BIN_SOURCE" "$HOME/.local/bin/openwhisper"
 
 echo "==> Installing icons..."
 ICON_DIR="$HOME/.local/share/icons/hicolor"
-mkdir -p "$ICON_DIR/scalable/apps" "$ICON_DIR/scalable/status"
+mkdir -p "$ICON_DIR/scalable/apps" "$ICON_DIR/scalable/status" "$HOME/.local/share/pixmaps"
+
+# Ensure hicolor index.theme exists so gtk-update-icon-cache and KDE icon loaders recognize the directory
+if [ ! -f "$ICON_DIR/index.theme" ]; then
+    if [ -f "/usr/share/icons/hicolor/index.theme" ]; then
+        cp "/usr/share/icons/hicolor/index.theme" "$ICON_DIR/index.theme"
+    else
+        cat > "$ICON_DIR/index.theme" << 'EOF'
+[Icon Theme]
+Name=Hicolor
+Comment=Fallback icon theme
+Hidden=true
+Directories=16x16/apps,24x24/apps,32x32/apps,48x48/apps,64x64/apps,128x128/apps,256x256/apps,512x512/apps,scalable/apps,scalable/status
+EOF
+    fi
+fi
+
 install -Dm644 assets/icons/openwhisper.svg "$ICON_DIR/scalable/apps/openwhisper.svg"
 install -Dm644 assets/icons/openwhisper-tray-idle.svg "$ICON_DIR/scalable/status/openwhisper-tray-idle.svg"
 install -Dm644 assets/icons/openwhisper-tray-recording.svg "$ICON_DIR/scalable/status/openwhisper-tray-recording.svg"
 install -Dm644 assets/icons/openwhisper-tray-transcribing.svg "$ICON_DIR/scalable/status/openwhisper-tray-transcribing.svg"
 install -Dm644 assets/icons/openwhisper-tray-error.svg "$ICON_DIR/scalable/status/openwhisper-tray-error.svg"
+
+# Also install into pixmaps as universal fallback
+install -Dm644 assets/icons/openwhisper.svg "$HOME/.local/share/pixmaps/openwhisper.svg"
+
+# Render multi-resolution PNGs if ImageMagick or ffmpeg is available
+CONVERT_TOOL=""
+if command -v magick >/dev/null 2>&1; then
+    CONVERT_TOOL="magick"
+elif command -v convert >/dev/null 2>&1; then
+    CONVERT_TOOL="convert"
+fi
+
+if [ -n "$CONVERT_TOOL" ]; then
+    for size in 16 24 32 48 64 128 256 512; do
+        mkdir -p "$ICON_DIR/${size}x${size}/apps"
+        $CONVERT_TOOL -background none assets/icons/openwhisper.svg -resize "${size}x${size}" "$ICON_DIR/${size}x${size}/apps/openwhisper.png" 2>/dev/null || true
+    done
+    cp "$ICON_DIR/256x256/apps/openwhisper.png" "$HOME/.local/share/pixmaps/openwhisper.png" 2>/dev/null || true
+fi
 
 # Update icon cache if tools are available
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then

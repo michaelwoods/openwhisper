@@ -97,15 +97,55 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
     let icons_dir = home.join(".local/share/icons/hicolor");
     let apps_icon_dir = icons_dir.join("scalable/apps");
     let status_icon_dir = icons_dir.join("scalable/status");
+    let pixmaps_dir = home.join(".local/share/pixmaps");
 
     let _ = fs::create_dir_all(&apps_icon_dir);
     let _ = fs::create_dir_all(&status_icon_dir);
+    let _ = fs::create_dir_all(&pixmaps_dir);
+
+    // Ensure hicolor index.theme exists so icon loaders and caches discover the theme
+    let index_theme_path = icons_dir.join("index.theme");
+    if !index_theme_path.exists() {
+        if Path::new("/usr/share/icons/hicolor/index.theme").exists() {
+            let _ = fs::copy("/usr/share/icons/hicolor/index.theme", &index_theme_path);
+        } else {
+            let fallback_index = "[Icon Theme]\nName=Hicolor\nComment=Fallback icon theme\nHidden=true\nDirectories=16x16/apps,24x24/apps,32x32/apps,48x48/apps,64x64/apps,128x128/apps,256x256/apps,512x512/apps,scalable/apps,scalable/status\n";
+            let _ = fs::write(&index_theme_path, fallback_index);
+        }
+    }
 
     let _ = fs::write(apps_icon_dir.join("openwhisper.svg"), APP_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-idle.svg"), TRAY_IDLE_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-recording.svg"), TRAY_RECORDING_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-transcribing.svg"), TRAY_TRANSCRIBING_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-error.svg"), TRAY_ERROR_ICON);
+    let _ = fs::write(pixmaps_dir.join("openwhisper.svg"), APP_ICON);
+
+    let convert_cmd = if has_command_in_path("magick") {
+        Some("magick")
+    } else if has_command_in_path("convert") {
+        Some("convert")
+    } else {
+        None
+    };
+
+    if let Some(cmd) = convert_cmd {
+        for size in [16, 24, 32, 48, 64, 128, 256, 512] {
+            let size_dir = icons_dir.join(format!("{}x{}/apps", size, size));
+            let _ = fs::create_dir_all(&size_dir);
+            let out_png = size_dir.join("openwhisper.png");
+            let _ = std::process::Command::new(cmd)
+                .args(["-background", "none"])
+                .arg(apps_icon_dir.join("openwhisper.svg"))
+                .args(["-resize", &format!("{}x{}", size, size)])
+                .arg(&out_png)
+                .output();
+        }
+        let _ = fs::copy(
+            icons_dir.join("256x256/apps/openwhisper.png"),
+            pixmaps_dir.join("openwhisper.png"),
+        );
+    }
     println!("   ✓ Icons deployed to {}", icons_dir.display());
 
     // Register Desktop Applications

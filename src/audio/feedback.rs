@@ -163,6 +163,136 @@ fn play_earcon_internal(earcon: EarconType, volume: f32) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Synchronously plays a recorded WAV audio file, blocking until playback completes.
+/// Tries standard desktop PipeWire / ALSA audio utilities (pw-play, paplay, aplay) first,
+/// falling back to cross-platform native decoding via hound + cpal.
+pub fn play_wav_file_blocking(path: &std::path::Path) -> anyhow::Result<()> {
+    if !path.exists() {
+        anyhow::bail!("Audio file does not exist: {:?}", path);
+    }
+
+    for cmd in ["pw-play", "paplay", "aplay"] {
+        if let Ok(mut child) = std::process::Command::new(cmd)
+            .arg(path)
+            .spawn()
+        {
+            let status = child.wait()?;
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+
+    // Cross-platform native decoding fallback via hound + cpal
+    play_wav_native(path)
+}
+
+/// Asynchronously plays a recorded WAV audio file in a background thread.
+pub fn play_wav_file(path: &std::path::Path) -> anyhow::Result<()> {
+    if !path.exists() {
+        anyhow::bail!("Audio file does not exist: {:?}", path);
+    }
+
+    let path_buf = path.to_path_buf();
+    thread::spawn(move || {
+        if let Err(err) = play_wav_file_blocking(&path_buf) {
+            tracing::error!("Audio playback failed: {err}");
+        }
+    });
+
+    Ok(())
+}
+
+fn play_wav_native(path: &std::path::Path) -> anyhow::Result<()> {
+    let mut reader = hound::WavReader::open(path)?;
+    let spec = reader.spec();
+    let wav_samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Int => {
+            let max_val = (1 << (spec.bits_per_sample.saturating_sub(1))) as f32;
+            reader
+                .samples::<i32>()
+                .filter_map(|s| s.ok())
+                .map(|s| s as f32 / max_val)
+                .collect()
+        }
+        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(|s| s.ok()).collect(),
+    };
+
+    if wav_samples.is_empty() {
+        return Ok(());
+    }
+
+    let host = cpal::default_host();
+    let device = match host.default_output_device() {
+        Some(d) => d,
+        None => anyhow::bail!("No default audio output device found for playback"),
+    };
+
+    let default_config = device.default_output_config()?;
+    let dev_sample_rate = default_config.sample_rate().0;
+    let dev_channels = default_config.channels() as usize;
+
+    let resampled = if spec.sample_rate != dev_sample_rate {
+        let ratio = spec.sample_rate as f64 / dev_sample_rate as f64;
+        let out_len = ((wav_samples.len() as f64) / ratio).round() as usize;
+        let mut out = Vec::with_capacity(out_len);
+        for i in 0..out_len {
+            let src_idx = (i as f64) * ratio;
+            let idx_floor = src_idx.floor() as usize;
+            let frac = (src_idx - (idx_floor as f64)) as f32;
+            let s = if idx_floor + 1 < wav_samples.len() {
+                wav_samples[idx_floor] + frac * (wav_samples[idx_floor + 1] - wav_samples[idx_floor])
+            } else if idx_floor < wav_samples.len() {
+                wav_samples[idx_floor]
+            } else {
+                0.0
+            };
+            out.push(s);
+        }
+        out
+    } else {
+        wav_samples
+    };
+
+    let samples = Arc::new(resampled);
+    let duration_ms = (samples.len() as f32 / dev_sample_rate as f32 * 1000.0) as u64;
+    let pos = Arc::new(AtomicUsize::new(0));
+    let is_done = Arc::new(AtomicBool::new(false));
+
+    let samples_cb = Arc::clone(&samples);
+    let pos_cb = Arc::clone(&pos);
+    let is_done_cb = Arc::clone(&is_done);
+
+    let stream_config: StreamConfig = default_config.into();
+    let stream = device.build_output_stream(
+        &stream_config,
+        move |data: &mut [f32], _: &_| {
+            let mut p = pos_cb.load(Ordering::Relaxed);
+            for frame in data.chunks_mut(dev_channels) {
+                let sample = if p < samples_cb.len() {
+                    let s = samples_cb[p];
+                    p += 1;
+                    s
+                } else {
+                    is_done_cb.store(true, Ordering::Relaxed);
+                    0.0
+                };
+                for out in frame.iter_mut() {
+                    *out = sample;
+                }
+            }
+            pos_cb.store(p, Ordering::Relaxed);
+        },
+        |err| tracing::debug!("Audio playback stream error: {err}"),
+        None,
+    )?;
+
+    stream.play()?;
+    thread::sleep(Duration::from_millis(duration_ms + 80));
+    drop(stream);
+    Ok(())
+}
+
 /// Generates mono floating-point audio samples for a specific earcon.
 pub fn generate_earcon_samples(earcon: EarconType, sample_rate: u32, volume: f32) -> Vec<f32> {
     let volume = volume.clamp(0.0, 1.0);

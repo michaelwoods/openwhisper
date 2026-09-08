@@ -109,6 +109,10 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         json: bool,
 
+        /// Play recorded audio for entry with the given ID
+        #[arg(long)]
+        play: Option<i64>,
+
         /// Launch dedicated standalone History graphical window
         #[arg(long, default_value_t = false)]
         gui: bool,
@@ -177,16 +181,25 @@ mod tests {
     fn test_cli_history_arguments() {
         let hist = Cli::try_parse_from(["openwhisper", "history", "--limit", "25", "--search", "meeting", "--gui"]).unwrap();
         match hist.command {
-            Some(Commands::History { limit, search, copy, delete, clear, json, gui }) => {
+            Some(Commands::History { limit, search, copy, play, delete, clear, json, gui }) => {
                 assert_eq!(limit, 25);
                 assert_eq!(search, Some("meeting".to_string()));
                 assert!(copy.is_none());
+                assert!(play.is_none());
                 assert!(delete.is_none());
                 assert!(!clear);
                 assert!(!json);
                 assert!(gui);
             }
             _ => panic!("Expected Commands::History"),
+        }
+
+        let hist_play = Cli::try_parse_from(["openwhisper", "history", "--play", "42"]).unwrap();
+        match hist_play.command {
+            Some(Commands::History { play, .. }) => {
+                assert_eq!(play, Some(42));
+            }
+            _ => panic!("Expected Commands::History with play"),
         }
     }
 }

@@ -18,6 +18,7 @@ pub struct HistoryEntry {
     pub char_count: usize,
     pub model: String,
     pub output_mode: String,
+    pub audio_path: Option<String>,
 }
 
 /// Thread-safe SQLite persistence manager for dictation history.
@@ -84,12 +85,17 @@ impl HistoryManager {
                 duration_secs REAL NOT NULL,
                 char_count INTEGER NOT NULL,
                 model TEXT NOT NULL,
-                output_mode TEXT NOT NULL
+                output_mode TEXT NOT NULL,
+                audio_path TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_transcriptions_timestamp ON transcriptions(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_transcriptions_id_desc ON transcriptions(id DESC);",
         )
         .context("Failed to initialize transcriptions table schema")?;
+
+        // Non-breaking migration: ensure audio_path column exists for databases created before this version
+        let _ = conn.execute("ALTER TABLE transcriptions ADD COLUMN audio_path TEXT;", []);
+
         Ok(())
     }
 
@@ -102,8 +108,8 @@ impl HistoryManager {
     pub fn record(&self, entry: &HistoryEntry) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO transcriptions (timestamp, text, raw_text, duration_secs, char_count, model, output_mode)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO transcriptions (timestamp, text, raw_text, duration_secs, char_count, model, output_mode, audio_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 entry.timestamp,
                 entry.text,
@@ -112,6 +118,7 @@ impl HistoryManager {
                 entry.char_count as i64,
                 entry.model,
                 entry.output_mode,
+                entry.audio_path,
             ],
         )
         .context("Failed to insert history entry")?;
@@ -124,7 +131,7 @@ impl HistoryManager {
     pub fn list(&self, limit: usize, offset: usize) -> Result<Vec<HistoryEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, text, raw_text, duration_secs, char_count, model, output_mode
+            "SELECT id, timestamp, text, raw_text, duration_secs, char_count, model, output_mode, audio_path
              FROM transcriptions
              ORDER BY id DESC
              LIMIT ?1 OFFSET ?2",
@@ -141,6 +148,7 @@ impl HistoryManager {
                 char_count: char_count as usize,
                 model: row.get(6)?,
                 output_mode: row.get(7)?,
+                audio_path: row.get(8)?,
             })
         })?;
 
@@ -156,7 +164,7 @@ impl HistoryManager {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{}%", query);
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, text, raw_text, duration_secs, char_count, model, output_mode
+            "SELECT id, timestamp, text, raw_text, duration_secs, char_count, model, output_mode, audio_path
              FROM transcriptions
              WHERE text LIKE ?1
              ORDER BY id DESC
@@ -174,6 +182,7 @@ impl HistoryManager {
                 char_count: char_count as usize,
                 model: row.get(6)?,
                 output_mode: row.get(7)?,
+                audio_path: row.get(8)?,
             })
         })?;
 
@@ -188,7 +197,7 @@ impl HistoryManager {
     pub fn get_by_id(&self, id: i64) -> Result<Option<HistoryEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, text, raw_text, duration_secs, char_count, model, output_mode
+            "SELECT id, timestamp, text, raw_text, duration_secs, char_count, model, output_mode, audio_path
              FROM transcriptions
              WHERE id = ?1",
         )?;
@@ -204,6 +213,7 @@ impl HistoryManager {
                 char_count: char_count as usize,
                 model: row.get(6)?,
                 output_mode: row.get(7)?,
+                audio_path: row.get(8)?,
             })
         })?;
 
@@ -212,6 +222,88 @@ impl HistoryManager {
         } else {
             Ok(None)
         }
+    }
+
+    /// Updates the audio_path for a specific history entry.
+    #[allow(dead_code)]
+    pub fn update_audio_path(&self, id: i64, audio_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE transcriptions SET audio_path = ?1 WHERE id = ?2",
+            params![audio_path, id],
+        )?;
+        Ok(())
+    }
+
+    /// Scans a recordings directory and links previously unlinked history entries
+    /// to matching .wav audio files by transcript text or timestamp.
+    /// Returns the number of entries successfully linked.
+    pub fn backfill_audio_paths(&self, dir: &Path) -> Result<usize> {
+        if !dir.is_dir() {
+            return Ok(0);
+        }
+
+        let mut linked = 0;
+        let entries = std::fs::read_dir(dir)?;
+        let mut wav_files = Vec::new();
+
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().map_or(false, |ext| ext == "wav") {
+                wav_files.push(p);
+            }
+        }
+
+        // Sort WAV files so older ones match older entries first
+        wav_files.sort();
+
+        let conn = self.conn.lock().unwrap();
+        for wav_path in wav_files {
+            let txt_path = wav_path.with_extension("txt");
+            let wav_str = wav_path.to_string_lossy().to_string();
+
+            // First check if this audio_path is already recorded
+            let already_linked: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM transcriptions WHERE audio_path = ?1",
+                    params![&wav_str],
+                    |r| r.get(0),
+                )
+                .unwrap_or(false);
+
+            if already_linked {
+                continue;
+            }
+
+            if txt_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&txt_path) {
+                    let trimmed = content.trim();
+                    if !trimmed.is_empty() {
+                        // Find the oldest unlinked entry matching the trimmed text
+                        let target_id: Option<i64> = conn
+                            .query_row(
+                                "SELECT id FROM transcriptions
+                                 WHERE (audio_path IS NULL OR audio_path = '') AND TRIM(text) = ?1
+                                 ORDER BY id ASC LIMIT 1",
+                                params![trimmed],
+                                |r| r.get(0),
+                            )
+                            .ok();
+
+                        if let Some(id) = target_id {
+                            let _ = conn.execute(
+                                "UPDATE transcriptions SET audio_path = ?1 WHERE id = ?2",
+                                params![&wav_str, id],
+                            );
+                            tracing::info!("Backfilled audio_path for history entry #{}: {:?}", id, wav_str);
+                            linked += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(linked)
     }
 
     /// Deletes a single history entry by its ID. Returns true if a row was deleted.
@@ -251,7 +343,39 @@ mod tests {
             char_count: text.chars().count(),
             model: "whisper-base".to_string(),
             output_mode: "clipboard_and_typing".to_string(),
+            audio_path: None,
         }
+    }
+
+    #[test]
+    fn test_history_audio_path_and_backfill() {
+        let mgr = HistoryManager::in_memory().expect("in-memory db");
+        let mut entry = sample_entry("Dictation with audio");
+        entry.audio_path = Some("/path/to/test.wav".to_string());
+        let id = mgr.record(&entry).unwrap();
+
+        let retrieved = mgr.get_by_id(id).unwrap().unwrap();
+        assert_eq!(retrieved.audio_path.as_deref(), Some("/path/to/test.wav"));
+
+        // Test backfill
+        let tmp_dir = std::env::temp_dir().join(format!("openwhisper_test_backfill_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let wav_file = tmp_dir.join("whisper_20260907_120000.wav");
+        let txt_file = tmp_dir.join("whisper_20260907_120000.txt");
+        std::fs::write(&wav_file, b"RIFFFAKE").unwrap();
+        std::fs::write(&txt_file, "Unlinked test phrase").unwrap();
+
+        let unlinked_id = mgr.record(&sample_entry("Unlinked test phrase")).unwrap();
+        let unlinked_entry = mgr.get_by_id(unlinked_id).unwrap().unwrap();
+        assert!(unlinked_entry.audio_path.is_none());
+
+        let count = mgr.backfill_audio_paths(&tmp_dir).unwrap();
+        assert_eq!(count, 1);
+
+        let linked_entry = mgr.get_by_id(unlinked_id).unwrap().unwrap();
+        assert_eq!(linked_entry.audio_path, Some(wav_file.to_string_lossy().to_string()));
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]

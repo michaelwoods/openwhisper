@@ -19,15 +19,21 @@ fn format_timestamp(iso_str: &str) -> String {
 
 fn entry_to_item(entry: &HistoryEntry) -> HistoryItem {
     let ts = format_timestamp(&entry.timestamp);
+    let has_audio = entry
+        .audio_path
+        .as_ref()
+        .map_or(false, |p| std::path::Path::new(p).exists());
+
     let meta = format!(
-        "{:.1}s • {} chars • {}",
+        "{:.1}s • {} chars • {}{}",
         entry.duration_secs,
         entry.char_count,
         if entry.model.is_empty() {
             "whisper"
         } else {
             &entry.model
-        }
+        },
+        if has_audio { " • 🔊 Audio" } else { "" }
     );
 
     HistoryItem {
@@ -35,6 +41,7 @@ fn entry_to_item(entry: &HistoryEntry) -> HistoryItem {
         timestamp: SharedString::from(ts),
         text: SharedString::from(entry.text.clone()),
         meta_info: SharedString::from(meta),
+        has_audio,
     }
 }
 
@@ -99,6 +106,33 @@ pub fn run_history_gui(history_mgr: Arc<HistoryManager>) -> Result<()> {
                 let q = win.get_search_query();
                 reload_cb(q.as_str());
                 win.set_toast_text(SharedString::from("History refreshed"));
+            }
+        });
+    }
+
+    // Wire play-item
+    {
+        let mgr = Arc::clone(&history_mgr);
+        let window_weak = window.as_weak();
+        window.on_play_item(move |id| {
+            let Some(win) = window_weak.upgrade() else {
+                return;
+            };
+            if let Ok(Some(entry)) = mgr.get_by_id(id as i64) {
+                if let Some(ref path_str) = entry.audio_path {
+                    let path = std::path::Path::new(path_str);
+                    if path.exists() {
+                        if let Err(e) = crate::audio::play_wav_file(path) {
+                            win.set_toast_text(SharedString::from(format!("Playback error: {}", e)));
+                        } else {
+                            win.set_toast_text(SharedString::from(format!("Playing recording audio for #{}...", id)));
+                        }
+                    } else {
+                        win.set_toast_text(SharedString::from("Audio recording file not found on disk"));
+                    }
+                } else {
+                    win.set_toast_text(SharedString::from("No audio recording saved for this entry"));
+                }
             }
         });
     }

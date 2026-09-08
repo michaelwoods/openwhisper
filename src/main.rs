@@ -176,6 +176,7 @@ async fn main() -> Result<()> {
             limit,
             search,
             copy,
+            play,
             delete,
             clear,
             json,
@@ -183,8 +184,32 @@ async fn main() -> Result<()> {
         } => {
             let mgr = Arc::new(history::HistoryManager::new(None)?);
 
+            if let Some(ref dir_str) = config.save_audio_dir {
+                let _ = mgr.backfill_audio_paths(std::path::Path::new(dir_str));
+            }
+
             if gui {
                 history::gui::run_history_gui(mgr)?;
+                return Ok(());
+            }
+
+            if let Some(id) = play {
+                if let Some(entry) = mgr.get_by_id(id)? {
+                    if let Some(ref path_str) = entry.audio_path {
+                        let path = std::path::Path::new(path_str);
+                        if path.exists() {
+                            println!("▶ Playing audio for transcription #{}: {}", id, path_str);
+                            crate::audio::play_wav_file_blocking(path)?;
+                            println!("Playback finished.");
+                        } else {
+                            eprintln!("Error: Audio file not found at {}", path_str);
+                        }
+                    } else {
+                        eprintln!("Error: No audio recording associated with history entry #{}", id);
+                    }
+                } else {
+                    eprintln!("Error: No history entry found with ID #{}", id);
+                }
                 return Ok(());
             }
 
@@ -234,8 +259,8 @@ async fn main() -> Result<()> {
             }
 
             let total_in_db = mgr.count()?;
-            println!("\n  ID  | Time (Local)        | Dur  | Chars | Transcription");
-            println!("------+---------------------+------+-------+--------------------------------------------------");
+            println!("\n  ID  | Time (Local)        | Dur   | Chars | Audio | Transcription");
+            println!("------+---------------------+-------+-------+-------+--------------------------------------------------");
             for e in &entries {
                 let local_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&e.timestamp) {
                     let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(dt);
@@ -244,25 +269,36 @@ async fn main() -> Result<()> {
                     e.timestamp.clone()
                 };
 
-                let display_text = if e.text.chars().count() > 50 {
-                    let truncated: String = e.text.chars().take(47).collect();
+                let display_text = if e.text.chars().count() > 46 {
+                    let truncated: String = e.text.chars().take(43).collect();
                     format!("{}...", truncated)
                 } else {
                     e.text.clone()
                 };
 
+                let audio_col = if let Some(ref p) = e.audio_path {
+                    if std::path::Path::new(p).exists() {
+                        " 🔊 Yes"
+                    } else {
+                        "   -   "
+                    }
+                } else {
+                    "   -   "
+                };
+
                 println!(
-                    "{:>5} | {:<19} | {:>4.1}s | {:>5} | {}",
+                    "{:>5} | {:<19} | {:>4.1}s | {:>5} | {} | {}",
                     e.id.unwrap_or(0),
                     local_time,
                     e.duration_secs,
                     e.char_count,
+                    audio_col,
                     display_text
                 );
             }
-            println!("------+---------------------+------+-------+--------------------------------------------------");
+            println!("------+---------------------+-------+-------+-------+--------------------------------------------------");
             println!(
-                "Showing {} of {} entries in database. Use `openwhisper history --gui` for GUI, or `--copy <ID>` to re-copy.\n",
+                "Showing {} of {} entries in database. Use `openwhisper history --gui` for GUI, `--play <ID>` to play, or `--copy <ID>` to copy.\n",
                 entries.len(),
                 total_in_db
             );
@@ -317,6 +353,18 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
     println!("{}", text);
     println!("--------------------------------------------------");
 
+    let audio_path = if let Some(ref dir_str) = config.save_audio_dir {
+        match crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text) {
+            Ok(p) => Some(p.to_string_lossy().to_string()),
+            Err(e) => {
+                tracing::warn!("Failed to save audio recording to {}: {}", dir_str, e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let hist_entry = history::HistoryEntry {
         id: None,
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -326,15 +374,12 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
         char_count: text.chars().count(),
         model: config.model.clone(),
         output_mode: format!("{:?}", config.output_mode),
+        audio_path,
     };
     if let Ok(mgr) = history::HistoryManager::new(None) {
         if let Err(e) = mgr.record(&hist_entry) {
             tracing::warn!("Failed to persist transcription to history: {e}");
         }
-    }
-
-    if let Some(ref dir_str) = config.save_audio_dir {
-        let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);
     }
 
     if !no_paste && config.output_mode == OutputMode::Paste {
@@ -367,6 +412,11 @@ async fn run_daemon(config: Config) -> Result<()> {
     let active_recording: Arc<Mutex<Option<audio::ActiveRecording>>> = Arc::new(Mutex::new(None));
     let mut recorder = Arc::new(AudioRecorder::new(config.audio_device.clone()));
     let history_mgr = Arc::new(history::HistoryManager::new(None)?);
+    if let Some(ref dir_str) = config.save_audio_dir {
+        if let Err(err) = history_mgr.backfill_audio_paths(std::path::Path::new(dir_str)) {
+            tracing::warn!("Failed to backfill audio paths from {}: {}", dir_str, err);
+        }
+    }
     let mut active_config = config;
 
     // Spawn IPC Unix Socket Server
@@ -455,6 +505,10 @@ async fn run_daemon(config: Config) -> Result<()> {
                             if new_cfg.audio_device != active_config.audio_device {
                                 recorder = Arc::new(AudioRecorder::new(new_cfg.audio_device.clone()));
                                 tracing::info!("Audio input device reconfigured to: {:?}", new_cfg.audio_device);
+                            }
+
+                            if let Some(ref dir_str) = new_cfg.save_audio_dir {
+                                let _ = history_mgr.backfill_audio_paths(std::path::Path::new(dir_str));
                             }
 
                             active_config = new_cfg;
@@ -618,6 +672,18 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         let duration = start.elapsed().as_secs_f32();
                                         tracing::info!("Transcribed in {:.2}s: {:?}", duration, text);
 
+                                        let audio_path = if let Some(ref dir_str) = save_audio_dir {
+                                            match crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text) {
+                                                Ok(p) => Some(p.to_string_lossy().to_string()),
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to save audio recording to {}: {}", dir_str, e);
+                                                    None
+                                                }
+                                            }
+                                        } else {
+                                            None
+                                        };
+
                                         let hist_entry = history::HistoryEntry {
                                             id: None,
                                             timestamp: chrono::Utc::now().to_rfc3339(),
@@ -627,13 +693,10 @@ async fn run_daemon(config: Config) -> Result<()> {
                                             char_count: text.chars().count(),
                                             model: client_clone.read().await.model().to_string(),
                                             output_mode: format!("{:?}", output_mode),
+                                            audio_path,
                                         };
                                         if let Err(err) = history_mgr_clone.record(&hist_entry) {
                                             tracing::warn!("Failed to persist transcription history: {err}");
-                                        }
-
-                                        if let Some(ref dir_str) = save_audio_dir {
-                                            let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);
                                         }
 
                                         tray_ctrl_clone.set_diagnostics(Some(duration), None);

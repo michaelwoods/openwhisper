@@ -5,6 +5,7 @@ export struct HistoryItem {
     timestamp: string,
     text: string,
     meta_info: string,
+    has_audio: bool,
 }
 
 export component HistoryWindow inherits Window {
@@ -21,6 +22,7 @@ export component HistoryWindow inherits Window {
     in-out property <bool> is-empty: false;
 
     callback search-changed(string);
+    callback play-item(int);
     callback copy-item(int);
     callback delete-item(int);
     callback clear-history();
@@ -167,6 +169,12 @@ export component HistoryWindow inherits Window {
                         // Actions row
                         HorizontalLayout {
                             spacing: 8px;
+                            if item.has_audio: Button {
+                                text: "▶ Play";
+                                clicked => {
+                                    root.play-item(item.id);
+                                }
+                            }
                             Rectangle { horizontal-stretch: 1; }
                             Button {
                                 text: "📋 Copy";

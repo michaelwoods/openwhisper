@@ -352,12 +352,13 @@ impl ActiveRecording {
 
 /// Saves recorded WAV audio and its corresponding transcript to a designated directory
 /// for dataset creation or custom TTS voice model training.
-pub fn save_recording_to_dir(dir: &std::path::Path, wav_bytes: &[u8], transcript: &str) -> Result<()> {
+/// Returns the path to the written WAV audio file.
+pub fn save_recording_to_dir(dir: &std::path::Path, wav_bytes: &[u8], transcript: &str) -> Result<std::path::PathBuf> {
     std::fs::create_dir_all(dir)
         .with_context(|| format!("Failed to create audio export directory at {:?}", dir))?;
 
     let now: chrono::DateTime<chrono::Local> = std::time::SystemTime::now().into();
-    let filename_base = format!("whisper_{}", now.format("%Y%m%d_%H%M%S"));
+    let filename_base = format!("whisper_{}_{:03}", now.format("%Y%m%d_%H%M%S"), now.timestamp_subsec_millis());
     let wav_path = dir.join(format!("{}.wav", filename_base));
     let txt_path = dir.join(format!("{}.txt", filename_base));
 
@@ -367,7 +368,7 @@ pub fn save_recording_to_dir(dir: &std::path::Path, wav_bytes: &[u8], transcript
         .with_context(|| format!("Failed to save transcript text to {:?}", txt_path))?;
 
     tracing::info!("Saved audio recording and transcript to {:?}", wav_path);
-    Ok(())
+    Ok(wav_path)
 }
 
 #[cfg(test)]
@@ -391,6 +392,9 @@ mod tests {
 
         let res = save_recording_to_dir(&tmp_dir, wav_data, transcript);
         assert!(res.is_ok());
+        let saved_wav = res.unwrap();
+        assert!(saved_wav.exists());
+        assert_eq!(saved_wav.extension().unwrap(), "wav");
 
         let entries: Vec<_> = std::fs::read_dir(&tmp_dir)
             .unwrap()
@@ -403,6 +407,7 @@ mod tests {
 
         assert_eq!(std::fs::read(wav_file).unwrap(), wav_data);
         assert_eq!(std::fs::read_to_string(txt_file).unwrap(), transcript);
+        assert_eq!(*wav_file, saved_wav);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

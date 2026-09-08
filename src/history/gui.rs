@@ -268,7 +268,7 @@ pub fn run_history_gui(history_mgr: Arc<HistoryManager>) -> Result<()> {
             }
 
             if let Ok(()) = mgr.clear_all() {
-                show_toast(&win, "All history cleared", 3);
+                show_toast(&win, "All history cleared (saved recordings preserved)", 4);
                 reload_cb("");
             }
         });

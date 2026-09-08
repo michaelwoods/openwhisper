@@ -234,7 +234,11 @@ async fn main() -> Result<()> {
 
             if clear {
                 mgr.clear_all()?;
-                println!("All transcription history cleared.");
+                if let Some(ref dir) = config.save_audio_dir {
+                    println!("All transcription history cleared. (Note: Saved audio recordings in '{}' were not deleted.)", dir);
+                } else {
+                    println!("All transcription history cleared. (Note: Saved audio recordings on disk were not deleted.)");
+                }
                 return Ok(());
             }
 

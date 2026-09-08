@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc::Sender;
 
@@ -52,42 +52,43 @@ impl IpcServer {
 
         loop {
             match listener.accept().await {
-                Ok((mut stream, _)) => {
+                Ok((stream, _)) => {
                     let cmd_tx = self.cmd_tx.clone();
                     tokio::spawn(async move {
-                        let mut buf = [0u8; 512];
-                        if let Ok(n) = stream.read(&mut buf).await {
-                            if n > 0 {
-                                if let Ok(cmd_str) = std::str::from_utf8(&buf[..n]) {
-                                    let cmd_trim = cmd_str.trim();
-                                    let cmd = parse_ipc_command(cmd_str);
-
-                                    if let Some(c) = cmd {
-                                        let is_reload = matches!(c, IpcCommand::ReloadConfig);
-                                        let _ = cmd_tx.send(c).await;
-                                        let message = if is_reload {
-                                            "Configuration reloaded successfully".to_string()
-                                        } else {
-                                            "command processed".to_string()
-                                        };
-                                        let res = IpcResponse {
-                                            status: "ok".to_string(),
-                                            message,
-                                        };
-                                        if let Ok(res_bytes) = serde_json::to_vec(&res) {
-                                            let _ = stream.write_all(&res_bytes).await;
-                                        }
+                        let (reader, mut writer) = stream.into_split();
+                        let mut buf_reader = tokio::io::BufReader::new(reader);
+                        let mut line = String::new();
+                        while let Ok(n) = buf_reader.read_line(&mut line).await {
+                            if n == 0 {
+                                break;
+                            }
+                            let cmd_str = line.trim();
+                            if !cmd_str.is_empty() {
+                                let cmd = parse_ipc_command(cmd_str);
+                                let res = if let Some(c) = cmd {
+                                    let is_reload = matches!(c, IpcCommand::ReloadConfig);
+                                    let _ = cmd_tx.send(c).await;
+                                    let message = if is_reload {
+                                        "Configuration reloaded successfully".to_string()
                                     } else {
-                                        let res = IpcResponse {
-                                            status: "error".to_string(),
-                                            message: format!("unknown command: {}", cmd_trim),
-                                        };
-                                        if let Ok(res_bytes) = serde_json::to_vec(&res) {
-                                            let _ = stream.write_all(&res_bytes).await;
-                                        }
+                                        "command processed".to_string()
+                                    };
+                                    IpcResponse {
+                                        status: "ok".to_string(),
+                                        message,
                                     }
+                                } else {
+                                    IpcResponse {
+                                        status: "error".to_string(),
+                                        message: format!("unknown command: {}", cmd_str),
+                                    }
+                                };
+                                if let Ok(mut res_bytes) = serde_json::to_vec(&res) {
+                                    res_bytes.push(b'\n');
+                                    let _ = writer.write_all(&res_bytes).await;
                                 }
                             }
+                            line.clear();
                         }
                     });
                 }
@@ -128,16 +129,20 @@ pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
 }
 
 pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
-    let mut stream = UnixStream::connect(socket_path)
+    let stream = UnixStream::connect(socket_path)
         .await
         .with_context(|| format!("OpenWhisper daemon is not running (cannot connect to {})", socket_path))?;
 
-    let payload = serde_json::to_vec(&cmd)?;
-    stream.write_all(&payload).await?;
+    let (reader, mut writer) = stream.into_split();
+    let mut payload = serde_json::to_vec(&cmd)?;
+    payload.push(b'\n');
+    writer.write_all(&payload).await?;
 
-    let mut buf = vec![0u8; 1024];
-    let n = stream.read(&mut buf).await?;
-    let response: IpcResponse = serde_json::from_slice(&buf[..n])
+    let mut buf_reader = tokio::io::BufReader::new(reader);
+    let mut line = String::new();
+    buf_reader.read_line(&mut line).await
+        .context("Failed to read response line from OpenWhisper daemon")?;
+    let response: IpcResponse = serde_json::from_str(line.trim())
         .context("Invalid response from OpenWhisper daemon")?;
     Ok(response)
 }
@@ -146,18 +151,21 @@ pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcR
 /// Safe to call from UI threads and non-async contexts without initiating a Tokio runtime.
 #[cfg(target_os = "linux")]
 pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
-    use std::io::{Read, Write};
+    use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
     let mut stream = UnixStream::connect(socket_path)
         .with_context(|| format!("OpenWhisper daemon is not running (cannot connect to {})", socket_path))?;
 
-    let payload = serde_json::to_vec(&cmd)?;
+    let mut payload = serde_json::to_vec(&cmd)?;
+    payload.push(b'\n');
     stream.write_all(&payload)?;
 
-    let mut buf = vec![0u8; 1024];
-    let n = stream.read(&mut buf)?;
-    let response: IpcResponse = serde_json::from_slice(&buf[..n])
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line)
+        .context("Failed to read response line from OpenWhisper daemon")?;
+    let response: IpcResponse = serde_json::from_str(line.trim())
         .context("Invalid response from OpenWhisper daemon")?;
     Ok(response)
 }
@@ -208,5 +216,38 @@ mod tests {
         let serialized = serde_json::to_string(&resp).unwrap();
         assert!(serialized.contains(r#""status":"ok""#));
         assert!(serialized.contains(r#""message":"done""#));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_ipc_roundtrip_newline_framed() {
+        let temp_dir = std::env::temp_dir();
+        let sock_path = temp_dir.join(format!("ow_test_ipc_{}.sock", std::process::id()));
+        let sock_str = sock_path.to_string_lossy().to_string();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        let server = IpcServer::new(sock_str.clone(), tx);
+        let server_handle = tokio::spawn(server.run());
+
+        // Wait briefly for server to bind
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        tokio::spawn(async move {
+            while let Some(_cmd) = rx.recv().await {}
+        });
+
+        let resp = send_ipc_command(&sock_str, IpcCommand::Toggle).await.unwrap();
+        assert_eq!(resp.status, "ok");
+
+        #[cfg(target_os = "linux")]
+        {
+            let sock_str_clone = sock_str.clone();
+            let resp_sync = tokio::task::spawn_blocking(move || {
+                send_ipc_command_sync(&sock_str_clone, IpcCommand::Status)
+            }).await.unwrap().unwrap();
+            assert_eq!(resp_sync.status, "ok");
+        }
+
+        server_handle.abort();
+        let _ = std::fs::remove_file(sock_path);
     }
 }

@@ -59,7 +59,7 @@ export component HistoryWindow inherits Window {
             spacing: 8px;
             search-input := LineEdit {
                 text <=> root.search-query;
-                placeholder-text: "🔍  Search past transcriptions...";
+                placeholder-text: "Search past transcriptions...";
                 horizontal-stretch: 1;
                 edited(query) => {
                     root.toast-text = "";
@@ -77,7 +77,7 @@ export component HistoryWindow inherits Window {
             }
 
             Button {
-                text: "🔄 Refresh";
+                text: "Refresh";
                 clicked => {
                     root.refresh();
                 }
@@ -180,13 +180,13 @@ export component HistoryWindow inherits Window {
                             }
                             Rectangle { horizontal-stretch: 1; }
                             Button {
-                                text: "📋 Copy";
+                                text: "Copy";
                                 clicked => {
                                     root.copy-item(item.id);
                                 }
                             }
                             Button {
-                                text: "🗑️ Delete";
+                                text: "Delete";
                                 clicked => {
                                     root.delete-item(item.id);
                                 }
@@ -223,7 +223,7 @@ export component HistoryWindow inherits Window {
         HorizontalLayout {
             spacing: 8px;
             Button {
-                text: "🗑️  Clear All History";
+                text: "Clear All History";
                 clicked => {
                     root.clear-history();
                 }

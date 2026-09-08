@@ -53,7 +53,7 @@ fn entry_to_item(entry: &HistoryEntry) -> HistoryItem {
         } else {
             &entry.model
         },
-        if has_audio { " • 🔊 Audio" } else { "" }
+        if has_audio { " • Audio" } else { "" }
     );
 
     HistoryItem {
@@ -317,7 +317,7 @@ mod tests {
         assert!(item.meta_info.contains("1.5s"));
         assert!(item.meta_info.contains("21 chars"));
         assert!(item.meta_info.contains("whisper-tiny"));
-        assert!(!item.meta_info.contains("🔊 Audio"));
+        assert!(!item.meta_info.contains("Audio"));
 
         let ts = format_timestamp("2026-09-07T22:00:00Z");
         assert!(!ts.is_empty());

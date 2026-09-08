@@ -67,7 +67,19 @@ install -Dm644 assets/icons/openwhisper-tray-transcribing.svg "$HOME/.local/shar
 install -Dm644 assets/icons/openwhisper-tray-degraded.svg "$HOME/.local/share/pixmaps/openwhisper-tray-degraded.svg"
 install -Dm644 assets/icons/openwhisper-tray-error.svg "$HOME/.local/share/pixmaps/openwhisper-tray-error.svg"
 
-# Render multi-resolution PNGs if ImageMagick is available
+# Clean up any previously generated low-resolution raster status PNGs to prevent blurry scaling
+rm -f "$ICON_DIR"/*/status/openwhisper-tray-*.png "$HOME/.local/share/pixmaps"/openwhisper-tray-*.png 2>/dev/null || true
+
+# Install vector SVGs and symbolic aliases for all tray states
+mkdir -p "$ICON_DIR/scalable/status" "$ICON_DIR/symbolic/status"
+for icon in idle recording transcribing degraded error; do
+    install -Dm644 "assets/icons/openwhisper-tray-${icon}.svg" "$ICON_DIR/scalable/status/openwhisper-tray-${icon}.svg"
+    install -Dm644 "assets/icons/openwhisper-tray-${icon}.svg" "$ICON_DIR/symbolic/status/openwhisper-tray-${icon}.svg"
+    install -Dm644 "assets/icons/openwhisper-tray-${icon}.svg" "$ICON_DIR/symbolic/status/openwhisper-tray-${icon}-symbolic.svg"
+    install -Dm644 "assets/icons/openwhisper-tray-${icon}.svg" "$HOME/.local/share/pixmaps/openwhisper-tray-${icon}.svg"
+done
+
+# Render multi-resolution PNGs for the main application icon only
 CONVERT_TOOL=""
 if command -v magick >/dev/null 2>&1; then
     CONVERT_TOOL="magick"
@@ -81,16 +93,6 @@ if [ -n "$CONVERT_TOOL" ]; then
         $CONVERT_TOOL -background none assets/icons/openwhisper.svg -resize "${size}x${size}" "$ICON_DIR/${size}x${size}/apps/openwhisper.png" 2>/dev/null || true
     done
     cp "$ICON_DIR/256x256/apps/openwhisper.png" "$HOME/.local/share/pixmaps/openwhisper.png" 2>/dev/null || true
-
-    for size in 16 22 24 32 48 64; do
-        mkdir -p "$ICON_DIR/${size}x${size}/status"
-        for icon in idle recording transcribing degraded error; do
-            $CONVERT_TOOL -background none "assets/icons/openwhisper-tray-${icon}.svg" -resize "${size}x${size}" "$ICON_DIR/${size}x${size}/status/openwhisper-tray-${icon}.png" 2>/dev/null || true
-        done
-    done
-    for icon in idle recording transcribing degraded error; do
-        cp "$ICON_DIR/24x24/status/openwhisper-tray-${icon}.png" "$HOME/.local/share/pixmaps/openwhisper-tray-${icon}.png" 2>/dev/null || true
-    done
 fi
 
 # Update icon cache if tools are available

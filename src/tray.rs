@@ -46,6 +46,7 @@ impl OpenWhisperTray {
     }
 
     /// Generate a 24x24 ARGB fallback icon pixmap in-memory with a bold, solid silhouette
+    #[allow(dead_code)]
     fn generate_fallback_icon(&self, state: TrayState) -> ksni::Icon {
         let width = 24;
         let height = 24;
@@ -252,8 +253,9 @@ impl ksni::Tray for OpenWhisperTray {
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        let state = self.state.read().map(|s| *s).unwrap_or(TrayState::Idle);
-        vec![self.generate_fallback_icon(state)]
+        // Return empty so compositors (KDE Plasma, GNOME, Sway) resolve the vector SVG
+        // directly from icon_theme_path at native monitor resolution, avoiding blurry bitmap scaling.
+        Vec::new()
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {

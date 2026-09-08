@@ -64,23 +64,7 @@ For lengthy dictation sessions, seeing words appear in real time reduces perceiv
 
 ---
 
-## 3. Persistent Transcription History & Search
-- **Status**: **Completed** (v0.1.0)
-- **Persistent Storage**:
-  - All completed dictations are durable across reboots in `~/.local/share/openwhisper/history.sqlite3` via `rusqlite` (WAL mode enabled).
-  - Stored fields: auto-incrementing ID, ISO timestamp, formatted text, raw text, duration, character count, model name, and output mode.
-- **Dedicated History Window (`ui/history.slint`)**:
-  - Independent, dedicated graphical window launched via CLI (`openwhisper history --gui`) or the KDE Plasma system tray (`"🔍 Browse Full History..."`).
-  - Strict separation of concerns: settings GUI remains completely pure and uncluttered.
-  - Live substring search filtering, relative timestamp formatting, 1-click "📋 Copy" and "🗑️ Delete" buttons, and "Clear All History" capability.
-- **Rich CLI Interface**:
-  - `openwhisper history [--limit N] [--search QUERY] [--copy ID] [--delete ID] [--clear] [--json] [--gui]`.
-  - Nicely formatted terminal table with quick recopying to system clipboard.
-
-
----
-
-## 4. Audio Dataset Collection & TTS Voice Cloning
+## 3. Audio Dataset Collection & TTS Voice Cloning
 
 ### Motivation
 High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2) require hundreds of paired `.wav` audio files and matching text transcripts to train or fine-tune personalized synthetic voices.
@@ -91,23 +75,7 @@ High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2)
 
 ---
 
-## 5. LLM Post-Processing & Smart Dictation Styles (Low Priority)
-
-### Motivation
-Spoken language frequently contains conversational artifacts such as filler words ("um", "uh", "you know"), stutters, false starts, and self-corrections ("let's meet Tuesday, wait, I mean Wednesday").
-
-### Architecture
-- Optional second-stage LLM pipeline querying a local model (Ollama, vLLM, llama.cpp on `frigg`) or cloud API.
-- **Persona & Transformation Styles**:
-  - **Cleaned**: Strips fillers, repetitions, and hesitation while preserving exact word choice.
-  - **Professional / Email**: Formats stream-of-consciousness thoughts into concise, polished paragraphs.
-  - **Code & Terminal**: Automatically detects variable names, shell commands, and syntax.
-  - **Bullet Points**: Condenses spoken thoughts into structured action items.
-- Configurable per-app rules (e.g. Terminal apps use Code style, email clients use Professional style).
-
----
-
-## 6. Pre-Flight System Diagnostics (`openwhisper doctor`)
+## 4. Pre-Flight System Diagnostics (`openwhisper doctor`)
 
 ### Motivation
 Diagnosing Wayland permissions, D-Bus session issues, remote inference endpoints, and audio capture devices during initial setup or troubleshooting should be instant and automated.
@@ -123,52 +91,7 @@ Diagnosing Wayland permissions, D-Bus session issues, remote inference endpoints
 
 ---
 
-## 7. Audio Hardware Resilience & Auto-Reconnection
-
-### Motivation
-USB microphones, wireless headsets, and Bluetooth audio devices can be disconnected, put into low-power sleep, or changed while the daemon is running.
-
-### Planned Features
-- **Device Watchdog**: Detect capture stream disconnections via `cpal` error callbacks.
-- **Graceful Fallback**: Automatically fall back to the system default capture device if the designated custom device disappears.
-- **Auto-Reconnect**: Seamlessly re-bind the preferred microphone when it is reconnected without requiring a daemon restart or manual reload.
-
----
-
-## 8. Direct Virtual Keyboard Keystroke Injection (`/dev/uinput`)
-
-### Status
-- **[Completed]**: Expanded `VirtualDeviceBuilder` to register all standard alphanumeric, whitespace, and punctuation keys. Direct kernel keystroke typing via `/dev/uinput` with shift modifier management and 2ms inter-key cadence, bypassing external process fork overhead (`wtype`/`ydotool`) for ASCII text while preserving `wtype` fallback for international characters.
-
----
-
-## 9. Granular Tray & HUD Health Diagnostics
-
-### Motivation
-When the remote STT server goes down or returns errors (e.g., out-of-memory or model load errors), the user should immediately see clear diagnostic indicators.
-
-### Planned Features
-- Dynamic system tray icon status (Green = Ready, Yellow = Network Degraded / Reconnecting, Red = Error).
-- Informative hover tooltips on the tray icon displaying latency and last error summary.
-- HUD error pills with descriptive troubleshooting messages (e.g., `"OVMS Unreachable (192.168.1.50:8000)"`).
-
----
-
-## 10. Instant Physical Abort Key (`Escape` to Cancel Recording)
-
-### Status
-- **[Completed]**: Physical `KEY_ESC` monitored via `evdev` (`ev.value() == 1`). If recording is active, it drops the recording immediately, clears the HUD, and emits a descending two-tone cancel chime (`EarconType::Cancel`, 440 Hz -> 260 Hz) without querying the STT model or pasting text.
-
----
-
-## 11. System Tray "Recent Dictations" Quick Re-Copy Menu
-
-### Status
-- **[Completed]**: In-memory ring buffer (`VecDeque<String>`) of the last 10 dictations managed by `TrayController`. Dynamically rendered as a `📋 Recent Dictations` submenu in the KDE Plasma `ksni` system tray. Clicking any item copies the full text to the clipboard and shows a desktop notification.
-
----
-
-## 12. Spoken Punctuation & Keyword Formatting Macros
+## 5. Spoken Punctuation & Keyword Formatting Macros
 
 ### Motivation
 Whisper models vary in how reliably they handle explicit punctuation instructions. Sometimes "new line" is transcribed literally as words, or users want to speak formatting commands without an LLM.
@@ -187,7 +110,7 @@ Whisper models vary in how reliably they handle explicit punctuation instruction
 
 ---
 
-## 13. Custom Text Expansion & Snippets (Personal Dictionary)
+## 6. Custom Text Expansion & Snippets (Personal Dictionary)
 
 ### Motivation
 Dictating complex technical email addresses, long URLs, boilerplate code blocks, or kaomoji/emojis by voice is error-prone.
@@ -201,14 +124,7 @@ Dictating complex technical email addresses, long URLs, boilerplate code blocks,
 
 ---
 
-## 14. Interactive Microphone VU Level Meter in Settings
-
-### Status
-- **[Completed]**: Added an interactive VU level meter to the "Audio Input & Recording" section of the Slint Settings GUI (`ui/settings.slint`). Real-time animated RMS level bar with color scaling (green -> yellow -> alert red on clipping), live dB/percentage status labels, and a 3.5-second test capture helper in `src/audio/recorder.rs` with peak level reporting.
-
----
-
-## 15. Context-Aware Automatic Formatting (Smart App Profiles)
+## 7. Context-Aware Automatic Formatting (Smart App Profiles)
 
 ### Motivation
 Dictating in a Linux terminal or IDE requires different formatting (lowercase, no trailing spaces/periods, snake_case) than writing an email or chat message in Thunderbird or Slack.
@@ -218,4 +134,20 @@ Dictating in a Linux terminal or IDE requires different formatting (lowercase, n
 - Configurable app profile rules:
   - `alacritty`, `konsole`, `kitty`, `foot` $\to$ `Raw` or `SnakeCase`, no auto-capitalization, no trailing period.
   - `slack`, `discord`, `telegram`, `thunderbird` $\to$ `Standard` sentence case with punctuation.
+
+---
+
+## 8. LLM Post-Processing & Smart Dictation Styles
+
+### Motivation
+Spoken language frequently contains conversational artifacts such as filler words ("um", "uh", "you know"), stutters, false starts, and self-corrections ("let's meet Tuesday, wait, I mean Wednesday").
+
+### Architecture
+- Optional second-stage LLM pipeline querying a local model (Ollama, vLLM, llama.cpp on `frigg`) or cloud API.
+- **Persona & Transformation Styles**:
+  - **Cleaned**: Strips fillers, repetitions, and hesitation while preserving exact word choice.
+  - **Professional / Email**: Formats stream-of-consciousness thoughts into concise, polished paragraphs.
+  - **Code & Terminal**: Automatically detects variable names, shell commands, and syntax.
+  - **Bullet Points**: Condenses spoken thoughts into structured action items.
+- Configurable per-app rules (e.g. Terminal apps use Code style, email clients use Professional style).
 

@@ -52,6 +52,7 @@ export component HistoryWindow inherits Window {
 
         // Search Bar & Controls
         HorizontalLayout {
+            height: 34px;
             spacing: 8px;
             search-input := LineEdit {
                 text <=> root.search-query;
@@ -80,6 +81,7 @@ export component HistoryWindow inherits Window {
 
         // Summary bar (item count)
         HorizontalLayout {
+            height: 18px;
             Text {
                 text: root.summary-text;
                 font-size: 11px;
@@ -118,6 +120,7 @@ export component HistoryWindow inherits Window {
             vertical-stretch: 1;
 
             VerticalLayout {
+                alignment: start;
                 spacing: 8px;
                 padding-right: 6px;
 
@@ -128,6 +131,7 @@ export component HistoryWindow inherits Window {
                     border-radius: 6px;
 
                     VerticalBox {
+                        alignment: start;
                         padding: 10px;
                         spacing: 8px;
 
@@ -179,6 +183,8 @@ export component HistoryWindow inherits Window {
                         }
                     }
                 }
+
+                Rectangle { vertical-stretch: 1; }
             }
         }
 

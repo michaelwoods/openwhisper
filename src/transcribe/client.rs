@@ -62,6 +62,10 @@ impl TranscriptionClient {
         &self.model
     }
 
+    pub fn server_url(&self) -> &str {
+        &self.server_url
+    }
+
     pub async fn transcribe(&self, wav_bytes: Vec<u8>) -> Result<String> {
         if wav_bytes.is_empty() {
             bail!("Audio data is empty, cannot transcribe");

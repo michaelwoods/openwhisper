@@ -404,7 +404,7 @@ async fn run_daemon(config: Config) -> Result<()> {
     println!("  • CLI: `openwhisper reload` (reloads config without restarting)");
 
     // Initialize StatusNotifierItem System Tray
-    let (tray_ctrl, _) = tray::start_tray_service(active_config.socket_path.clone()).await;
+    let (tray_ctrl, _) = tray::start_tray_service(active_config.socket_path.clone(), active_config.server_url.clone()).await;
 
     // Initialize Floating HUD Overlay
     let hud_ctrl = hud::start_hud_service(active_config.hud_enabled, active_config.hud_position);
@@ -435,6 +435,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                             eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
                             hud_ctrl.set_enabled(new_cfg.hud_enabled);
                             hud_ctrl.set_position(new_cfg.hud_position);
+                            tray_ctrl.set_server_url(new_cfg.server_url.clone());
                             #[cfg(target_os = "linux")]
                             crate::setup::sync_kwin_hud_position(new_cfg.hud_position);
 
@@ -490,13 +491,21 @@ async fn run_daemon(config: Config) -> Result<()> {
         match action {
             Action::StartRecording => {
                 tracing::info!("Action: StartRecording");
-                tray_ctrl.set_state(tray::TrayState::Recording);
-                hud_ctrl.set_recording();
                 notifications.read().await.recording_started();
                 sound.read().await.play(EarconType::RecordingStarted);
 
                 match recorder.start_recording() {
                     Ok(rec) => {
+                        if rec.is_fallback() {
+                            tracing::warn!("Preferred microphone unavailable; recording using fallback microphone: {}", rec.device_name());
+                            tray_ctrl.set_active_device(Some(format!("{} (Fallback)", rec.device_name())));
+                            tray_ctrl.set_state(tray::TrayState::Degraded);
+                        } else {
+                            tray_ctrl.set_active_device(Some(rec.device_name().to_string()));
+                            tray_ctrl.set_state(tray::TrayState::Recording);
+                        }
+                        hud_ctrl.set_recording();
+
                         let sample_buf = rec.sample_buffer();
                         let is_rec_handle = rec.is_recording_handle();
 
@@ -592,6 +601,9 @@ async fn run_daemon(config: Config) -> Result<()> {
                     let noise_suppression = active_config.noise_suppression;
                     let save_audio_dir = active_config.save_audio_dir.clone();
                     let output_mode = active_config.output_mode;
+                    if rec.has_stream_error() {
+                        tracing::warn!("Audio capture stream encountered errors during recording on device: {}", rec.device_name());
+                    }
                     let wav_res = rec.stop_with_options(noise_suppression);
                     tokio::spawn(async move {
                         match wav_res {
@@ -624,6 +636,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                             let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);
                                         }
 
+                                        tray_ctrl_clone.set_diagnostics(Some(duration), None);
                                         tray_ctrl_clone.set_state(tray::TrayState::Idle);
                                         tray_ctrl_clone.add_history(text.clone());
                                         hud_ctrl_clone.set_completed(&text);
@@ -638,24 +651,42 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         }
                                     }
                                     Err(err) => {
+                                        let err_str = err.to_string();
+                                        let descriptive_msg = if err_str.contains("Failed to connect") || err_str.contains("Connection refused") {
+                                            let srv = client_clone.read().await.server_url().to_string();
+                                            format!("Server unreachable ({srv})")
+                                        } else if err_str.contains("401") || err_str.contains("403") {
+                                            "Auth error: Invalid API key".to_string()
+                                        } else if err_str.contains("404") {
+                                            let mdl = client_clone.read().await.model().to_string();
+                                            format!("Model not found or 404 ({mdl})")
+                                        } else if err_str.contains("empty") {
+                                            "No speech detected (empty audio)".to_string()
+                                        } else {
+                                            format!("STT failed: {err}")
+                                        };
+
                                         tracing::error!("Transcription error: {err}");
+                                        tray_ctrl_clone.set_diagnostics(None, Some(descriptive_msg.clone()));
                                         tray_ctrl_clone.set_state(tray::TrayState::Error);
-                                        hud_ctrl_clone.set_error(&format!("STT failed: {err}"));
+                                        hud_ctrl_clone.set_error(&descriptive_msg);
                                         let reset_ctrl = tray_ctrl_clone.clone();
                                         tokio::spawn(async move {
                                             tokio::time::sleep(Duration::from_secs(3)).await;
                                             reset_ctrl.set_state(tray::TrayState::Idle);
                                         });
-                                        notif_clone.read().await.error(&format!("STT failed: {err}"));
+                                        notif_clone.read().await.error(&descriptive_msg);
                                         sound_clone.read().await.play(EarconType::Error);
                                     }
                                 }
                             }
                             Err(err) => {
+                                let descriptive_msg = format!("Audio encoding error: {err}");
+                                tray_ctrl_clone.set_diagnostics(None, Some(descriptive_msg.clone()));
                                 tracing::error!("Audio stop/encoding error: {err}");
                                 tray_ctrl_clone.set_state(tray::TrayState::Error);
-                                hud_ctrl_clone.set_error("Audio encoding error");
-                                notif_clone.read().await.error(&format!("Audio encoding error: {err}"));
+                                hud_ctrl_clone.set_error(&descriptive_msg);
+                                notif_clone.read().await.error(&descriptive_msg);
                                 sound_clone.read().await.play(EarconType::Error);
                             }
                         }

@@ -19,6 +19,9 @@ pub struct ActiveRecording {
     channels: u16,
     sample_rate: u32,
     is_recording: Arc<AtomicBool>,
+    stream_error: Arc<AtomicBool>,
+    is_fallback: bool,
+    device_name: String,
     #[allow(dead_code)]
     started_at: Instant,
 }
@@ -26,6 +29,11 @@ pub struct ActiveRecording {
 impl AudioRecorder {
     pub fn new(device_name: Option<String>) -> Self {
         Self { device_name }
+    }
+
+    #[allow(dead_code)]
+    pub fn preferred_device(&self) -> Option<&str> {
+        self.device_name.as_deref()
     }
 
     pub fn list_input_devices() -> Result<Vec<String>> {
@@ -42,7 +50,10 @@ impl AudioRecorder {
         Ok(names)
     }
 
-    fn select_device(&self) -> Result<Device> {
+    /// Selects the audio input device. If the user-specified device is disconnected or missing,
+    /// gracefully falls back to the system default input device and marks `is_fallback = true`.
+    /// When the preferred device is reconnected in the future, it is automatically selected again.
+    fn select_device(&self) -> Result<(Device, bool, String)> {
         let host = cpal::default_host();
         if let Some(ref desired_name) = self.device_name {
             let devices = host
@@ -51,25 +62,33 @@ impl AudioRecorder {
             for dev in devices {
                 if let Ok(name) = dev.name() {
                     if name.to_lowercase().contains(&desired_name.to_lowercase()) {
-                        tracing::info!("Using matched audio input device: {}", name);
-                        return Ok(dev);
+                        tracing::info!("Using matched primary audio input device: {}", name);
+                        return Ok((dev, false, name));
                     }
                 }
             }
-            bail!(
-                "Requested audio device containing {:?} was not found",
+            tracing::warn!(
+                "Preferred audio device containing {:?} not found or disconnected. Falling back to system default input device.",
                 desired_name
             );
+            let default_dev = host
+                .default_input_device()
+                .context("Preferred device not found and no system default audio input device is available")?;
+            let fallback_name = default_dev.name().unwrap_or_else(|_| "Default".to_string());
+            tracing::info!("Audio resilience: actively using fallback device: {}", fallback_name);
+            return Ok((default_dev, true, fallback_name));
         }
 
-        host.default_input_device()
-            .context("No default audio input device found")
+        let dev = host
+            .default_input_device()
+            .context("No default audio input device found")?;
+        let name = dev.name().unwrap_or_else(|_| "Default".to_string());
+        Ok((dev, false, name))
     }
 
     pub fn start_recording(&self) -> Result<ActiveRecording> {
-        let device = self.select_device()?;
-        let dev_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-        tracing::info!("Opening audio input stream on: {}", dev_name);
+        let (device, is_fallback, dev_name) = self.select_device()?;
+        tracing::info!("Opening audio input stream on: {} (fallback: {})", dev_name, is_fallback);
 
         let default_config = device
             .default_input_config()
@@ -87,12 +106,16 @@ impl AudioRecorder {
 
         let samples = Arc::new(Mutex::new(Vec::<f32>::with_capacity(sample_rate as usize * 4)));
         let is_recording = Arc::new(AtomicBool::new(true));
+        let stream_error = Arc::new(AtomicBool::new(false));
 
         let samples_cb = Arc::clone(&samples);
         let is_recording_cb = Arc::clone(&is_recording);
+        let stream_err_cb = Arc::clone(&stream_error);
+        let dev_err_name = dev_name.clone();
 
-        let err_fn = |err| {
-            tracing::error!("Audio stream error: {:?}", err);
+        let err_fn = move |err: cpal::StreamError| {
+            tracing::error!("Audio capture stream error on device '{}': {:?}", dev_err_name, err);
+            stream_err_cb.store(true, Ordering::Relaxed);
         };
 
         let stream = match sample_format {
@@ -142,10 +165,10 @@ impl AudioRecorder {
                     None,
                 )?
             }
-            other => bail!("Unsupported sample format: {:?}", other),
+            _ => bail!("Unsupported sample format: {:?}", sample_format),
         };
 
-        stream.play().context("Failed to play audio stream")?;
+        stream.play().context("Failed to start audio stream")?;
 
         Ok(ActiveRecording {
             stream,
@@ -153,9 +176,13 @@ impl AudioRecorder {
             channels,
             sample_rate,
             is_recording,
+            stream_error,
+            is_fallback,
+            device_name: dev_name,
             started_at: Instant::now(),
         })
     }
+
 
     /// Tests microphone input levels for `duration`, invoking `on_level(normalized_rms, is_clipping)`
     /// every ~50ms. Returns the peak level reached.
@@ -219,6 +246,20 @@ impl ActiveRecording {
     pub fn is_recording_handle(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.is_recording)
     }
+
+    pub fn is_fallback(&self) -> bool {
+        self.is_fallback
+    }
+
+    pub fn device_name(&self) -> &str {
+        &self.device_name
+    }
+
+    #[allow(dead_code)]
+    pub fn has_stream_error(&self) -> bool {
+        self.stream_error.load(Ordering::Relaxed)
+    }
+
 
     /// Copies samples recorded after index `start` and returns the new samples and current total sample length.
     #[allow(dead_code)]
@@ -379,6 +420,17 @@ mod tests {
         // Either Ok(0.0) if device present or Err if headless
         if let Ok(peak) = res {
             assert!(peak >= 0.0 && peak <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_audio_recorder_fallback_selection() {
+        let rec = AudioRecorder::new(Some("NonExistentMicrophone_XYZ_12345".into()));
+        // select_device should fall back to default input device without panicking or bailing with an error
+        let res = rec.select_device();
+        if let Ok((_dev, is_fallback, name)) = res {
+            assert!(is_fallback);
+            assert!(!name.is_empty());
         }
     }
 }

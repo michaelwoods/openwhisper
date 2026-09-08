@@ -8,6 +8,7 @@ pub enum TrayState {
     Idle,
     Recording,
     Transcribing,
+    Degraded,
     Error,
 }
 
@@ -16,12 +17,32 @@ pub struct OpenWhisperTray {
     pub state: Arc<RwLock<TrayState>>,
     pub socket_path: String,
     pub history: Arc<RwLock<VecDeque<String>>>,
+    pub server_url: Arc<RwLock<String>>,
+    pub last_latency: Arc<RwLock<Option<f32>>>,
+    pub last_error: Arc<RwLock<Option<String>>>,
+    pub active_device: Arc<RwLock<Option<String>>>,
 }
 
 #[cfg(target_os = "linux")]
 impl OpenWhisperTray {
-    pub fn new(state: Arc<RwLock<TrayState>>, socket_path: String, history: Arc<RwLock<VecDeque<String>>>) -> Self {
-        Self { state, socket_path, history }
+    pub fn new(
+        state: Arc<RwLock<TrayState>>,
+        socket_path: String,
+        history: Arc<RwLock<VecDeque<String>>>,
+        server_url: Arc<RwLock<String>>,
+        last_latency: Arc<RwLock<Option<f32>>>,
+        last_error: Arc<RwLock<Option<String>>>,
+        active_device: Arc<RwLock<Option<String>>>,
+    ) -> Self {
+        Self {
+            state,
+            socket_path,
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        }
     }
 
     /// Generate a 24x24 ARGB fallback icon pixmap in-memory
@@ -35,7 +56,8 @@ impl OpenWhisperTray {
             TrayState::Idle => (241, 245, 249),        // Crisp light white/slate
             TrayState::Recording => (239, 68, 68),      // Vivid red
             TrayState::Transcribing => (56, 189, 248),  // Cyan blue
-            TrayState::Error => (245, 158, 11),        // Amber warning
+            TrayState::Degraded => (245, 158, 11),      // Amber warning (fallback mic / network)
+            TrayState::Error => (239, 68, 68),          // Vivid red alert
         };
 
         for y in 0..height {
@@ -119,7 +141,47 @@ impl ksni::Tray for OpenWhisperTray {
             TrayState::Idle => "openwhisper-tray-idle".into(),
             TrayState::Recording => "openwhisper-tray-recording".into(),
             TrayState::Transcribing => "openwhisper-tray-transcribing".into(),
+            TrayState::Degraded => "openwhisper-tray-degraded".into(),
             TrayState::Error => "openwhisper-tray-error".into(),
+        }
+    }
+
+    fn tool_tip(&self) -> ksni::ToolTip {
+        let state = self.state.read().map(|s| *s).unwrap_or(TrayState::Idle);
+        let status_desc = match state {
+            TrayState::Idle => "Ready (Idle)",
+            TrayState::Recording => "Recording audio...",
+            TrayState::Transcribing => "Transcribing with Whisper...",
+            TrayState::Degraded => "Degraded (Fallback Mic / Network Warning)",
+            TrayState::Error => "Error during transcription",
+        };
+
+        let server = self.server_url.read().map(|s| s.clone()).unwrap_or_default();
+        let mut desc = format!("Status: {}\nServer: {}", status_desc, server);
+
+        if let Ok(dev_opt) = self.active_device.read() {
+            if let Some(ref d) = *dev_opt {
+                desc.push_str(&format!("\nMicrophone: {}", d));
+            }
+        }
+
+        if let Ok(lat_opt) = self.last_latency.read() {
+            if let Some(lat) = *lat_opt {
+                desc.push_str(&format!("\nLast Latency: {:.2}s", lat));
+            }
+        }
+
+        if let Ok(err_opt) = self.last_error.read() {
+            if let Some(ref err) = *err_opt {
+                desc.push_str(&format!("\nLast Error: {}", err));
+            }
+        }
+
+        ksni::ToolTip {
+            title: "OpenWhisper Dictation Assistant".into(),
+            description: desc,
+            icon_name: self.icon_name(),
+            icon_pixmap: Vec::new(),
         }
     }
 
@@ -145,7 +207,8 @@ impl ksni::Tray for OpenWhisperTray {
             TrayState::Idle => "● Status: Ready (Idle)".to_string(),
             TrayState::Recording => "🔴 Status: Recording...".to_string(),
             TrayState::Transcribing => "⏳ Status: Transcribing...".to_string(),
-            TrayState::Error => "⚠️ Status: Error".to_string(),
+            TrayState::Degraded => "⚠️ Status: Degraded (Fallback Mic)".to_string(),
+            TrayState::Error => "❌ Status: Error".to_string(),
         };
 
         let socket_for_toggle = self.socket_path.clone();
@@ -274,6 +337,10 @@ pub struct TrayController {
     handle: Option<ksni::Handle<OpenWhisperTray>>,
     state: Arc<RwLock<TrayState>>,
     history: Arc<RwLock<VecDeque<String>>>,
+    server_url: Arc<RwLock<String>>,
+    last_latency: Arc<RwLock<Option<f32>>>,
+    last_error: Arc<RwLock<Option<String>>>,
+    active_device: Arc<RwLock<Option<String>>>,
 }
 
 impl TrayController {
@@ -282,13 +349,39 @@ impl TrayController {
         handle: Option<ksni::Handle<OpenWhisperTray>>,
         state: Arc<RwLock<TrayState>>,
         history: Arc<RwLock<VecDeque<String>>>,
+        server_url: Arc<RwLock<String>>,
+        last_latency: Arc<RwLock<Option<f32>>>,
+        last_error: Arc<RwLock<Option<String>>>,
+        active_device: Arc<RwLock<Option<String>>>,
     ) -> Self {
-        Self { handle, state, history }
+        Self {
+            handle,
+            state,
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        }
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn new(state: Arc<RwLock<TrayState>>, history: Arc<RwLock<VecDeque<String>>>) -> Self {
-        Self { state, history }
+    pub fn new(
+        state: Arc<RwLock<TrayState>>,
+        history: Arc<RwLock<VecDeque<String>>>,
+        server_url: Arc<RwLock<String>>,
+        last_latency: Arc<RwLock<Option<f32>>>,
+        last_error: Arc<RwLock<Option<String>>>,
+        active_device: Arc<RwLock<Option<String>>>,
+    ) -> Self {
+        Self {
+            state,
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        }
     }
 
     pub fn set_state(&self, new_state: TrayState) {
@@ -299,11 +392,80 @@ impl TrayController {
         if let Some(ref handle) = self.handle {
             let handle = handle.clone();
             tokio::spawn(async move {
-                handle.update(|tray| {
-                    if let Ok(mut lock) = tray.state.write() {
-                        *lock = new_state;
-                    }
-                }).await;
+                handle
+                    .update(|tray| {
+                        if let Ok(mut lock) = tray.state.write() {
+                            *lock = new_state;
+                        }
+                    })
+                    .await;
+            });
+        }
+    }
+
+    pub fn set_diagnostics(&self, latency: Option<f32>, error: Option<String>) {
+        if let Some(l) = latency {
+            if let Ok(mut lock) = self.last_latency.write() {
+                *lock = Some(l);
+            }
+        }
+        if let Ok(mut lock) = self.last_error.write() {
+            *lock = error.clone();
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(ref handle) = self.handle {
+            let handle = handle.clone();
+            tokio::spawn(async move {
+                handle
+                    .update(|tray| {
+                        if let Some(l) = latency {
+                            if let Ok(mut lock) = tray.last_latency.write() {
+                                *lock = Some(l);
+                            }
+                        }
+                        if let Ok(mut lock) = tray.last_error.write() {
+                            *lock = error;
+                        }
+                    })
+                    .await;
+            });
+        }
+    }
+
+    pub fn set_server_url(&self, url: String) {
+        if let Ok(mut lock) = self.server_url.write() {
+            *lock = url.clone();
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(ref handle) = self.handle {
+            let handle = handle.clone();
+            tokio::spawn(async move {
+                handle
+                    .update(|tray| {
+                        if let Ok(mut lock) = tray.server_url.write() {
+                            *lock = url;
+                        }
+                    })
+                    .await;
+            });
+        }
+    }
+
+    pub fn set_active_device(&self, dev: Option<String>) {
+        if let Ok(mut lock) = self.active_device.write() {
+            *lock = dev.clone();
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(ref handle) = self.handle {
+            let handle = handle.clone();
+            tokio::spawn(async move {
+                handle
+                    .update(|tray| {
+                        if let Ok(mut lock) = tray.active_device.write() {
+                            *lock = dev;
+                        }
+                    })
+                    .await;
             });
         }
     }
@@ -340,43 +502,106 @@ impl TrayController {
 
 
 /// Spawn the system tray in background if on Linux
-pub async fn start_tray_service(socket_path: String) -> (TrayController, Arc<RwLock<TrayState>>) {
+pub async fn start_tray_service(socket_path: String, server_url: String) -> (TrayController, Arc<RwLock<TrayState>>) {
     let state = Arc::new(RwLock::new(TrayState::Idle));
     let history = Arc::new(RwLock::new(VecDeque::new()));
+    let server_url_arc = Arc::new(RwLock::new(server_url));
+    let last_latency = Arc::new(RwLock::new(None));
+    let last_error = Arc::new(RwLock::new(None));
+    let active_device = Arc::new(RwLock::new(None));
 
     #[cfg(target_os = "linux")]
     {
         use ksni::TrayMethods;
-        let tray = OpenWhisperTray::new(state.clone(), socket_path, history.clone());
+        let tray = OpenWhisperTray::new(
+            state.clone(),
+            socket_path,
+            history.clone(),
+            server_url_arc.clone(),
+            last_latency.clone(),
+            last_error.clone(),
+            active_device.clone(),
+        );
         match tray.spawn().await {
             Ok(handle) => {
                 info!("System tray (StatusNotifierItem) initialized successfully.");
-                (TrayController::new(Some(handle), state.clone(), history), state)
+                (
+                    TrayController::new(
+                        Some(handle),
+                        state.clone(),
+                        history,
+                        server_url_arc,
+                        last_latency,
+                        last_error,
+                        active_device,
+                    ),
+                    state,
+                )
             }
             Err(err) => {
                 warn!("StatusNotifierWatcher not available or failed to register tray: {err}. Running without system tray.");
-                (TrayController::new(None, state.clone(), history), state)
+                (
+                    TrayController::new(
+                        None,
+                        state.clone(),
+                        history,
+                        server_url_arc,
+                        last_latency,
+                        last_error,
+                        active_device,
+                    ),
+                    state,
+                )
             }
         }
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        (TrayController::new(state.clone(), history), state)
+        (
+            TrayController::new(
+                state.clone(),
+                history,
+                server_url_arc,
+                last_latency,
+                last_error,
+                active_device,
+            ),
+            state,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ksni::Tray;
 
     #[test]
     fn test_tray_fallback_icon_dimensions() {
         let state = Arc::new(RwLock::new(TrayState::Idle));
         let history = Arc::new(RwLock::new(VecDeque::new()));
-        let tray = OpenWhisperTray::new(state, "/tmp/test.sock".into(), history);
+        let server_url = Arc::new(RwLock::new("http://localhost:8000".into()));
+        let last_latency = Arc::new(RwLock::new(None));
+        let last_error = Arc::new(RwLock::new(None));
+        let active_device = Arc::new(RwLock::new(None));
+        let tray = OpenWhisperTray::new(
+            state,
+            "/tmp/test.sock".into(),
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        );
 
-        for s in [TrayState::Idle, TrayState::Recording, TrayState::Transcribing, TrayState::Error] {
+        for s in [
+            TrayState::Idle,
+            TrayState::Recording,
+            TrayState::Transcribing,
+            TrayState::Degraded,
+            TrayState::Error,
+        ] {
             let icon = tray.generate_fallback_icon(s);
             assert_eq!(icon.width, 24);
             assert_eq!(icon.height, 24);
@@ -388,13 +613,27 @@ mod tests {
     fn test_tray_controller_state_update() {
         let state = Arc::new(RwLock::new(TrayState::Idle));
         let history = Arc::new(RwLock::new(VecDeque::new()));
-        let ctrl = TrayController::new(None, state.clone(), history);
+        let server_url = Arc::new(RwLock::new("http://localhost:8000".into()));
+        let last_latency = Arc::new(RwLock::new(None));
+        let last_error = Arc::new(RwLock::new(None));
+        let active_device = Arc::new(RwLock::new(None));
+        let ctrl = TrayController::new(
+            None,
+            state.clone(),
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        );
 
         assert_eq!(*state.read().unwrap(), TrayState::Idle);
         ctrl.set_state(TrayState::Recording);
         assert_eq!(*state.read().unwrap(), TrayState::Recording);
         ctrl.set_state(TrayState::Transcribing);
         assert_eq!(*state.read().unwrap(), TrayState::Transcribing);
+        ctrl.set_state(TrayState::Degraded);
+        assert_eq!(*state.read().unwrap(), TrayState::Degraded);
         ctrl.set_state(TrayState::Error);
         assert_eq!(*state.read().unwrap(), TrayState::Error);
     }
@@ -403,7 +642,19 @@ mod tests {
     fn test_tray_controller_history_ring_buffer() {
         let state = Arc::new(RwLock::new(TrayState::Idle));
         let history = Arc::new(RwLock::new(VecDeque::new()));
-        let ctrl = TrayController::new(None, state, history);
+        let server_url = Arc::new(RwLock::new("http://localhost:8000".into()));
+        let last_latency = Arc::new(RwLock::new(None));
+        let last_error = Arc::new(RwLock::new(None));
+        let active_device = Arc::new(RwLock::new(None));
+        let ctrl = TrayController::new(
+            None,
+            state,
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        );
 
         assert!(ctrl.history().is_empty());
 
@@ -435,6 +686,32 @@ mod tests {
         assert_eq!(current.len(), 10);
         assert_eq!(current[0], "Batch dictation #11");
         assert_eq!(current[9], "Batch dictation #2");
+    }
+
+    #[test]
+    fn test_tray_tooltip_contents() {
+        let state = Arc::new(RwLock::new(TrayState::Idle));
+        let history = Arc::new(RwLock::new(VecDeque::new()));
+        let server_url = Arc::new(RwLock::new("https://ovms.example.com/v1".into()));
+        let last_latency = Arc::new(RwLock::new(Some(0.42)));
+        let last_error = Arc::new(RwLock::new(None));
+        let active_device = Arc::new(RwLock::new(Some("USB Condenser Mic".into())));
+        let tray = OpenWhisperTray::new(
+            state,
+            "/tmp/test.sock".into(),
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        );
+
+        let tooltip = tray.tool_tip();
+        assert_eq!(tooltip.title, "OpenWhisper Dictation Assistant");
+        assert!(tooltip.description.contains("Ready (Idle)"));
+        assert!(tooltip.description.contains("https://ovms.example.com/v1"));
+        assert!(tooltip.description.contains("0.42s"));
+        assert!(tooltip.description.contains("USB Condenser Mic"));
     }
 }
 

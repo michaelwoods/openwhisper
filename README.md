@@ -12,6 +12,11 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - **Push-To-Talk (PTT)**: Press and hold key to speak, release to immediately transcribe and paste.
   - **Hands-Free Toggle Mode**: Brief tap to start recording hands-free, tap again to finish and paste.
   - Seamlessly unified state machine with configurable threshold (`ptt_threshold_ms`, default: `350ms`).
+  - **Physical Abort Key**: Tap physical `Escape` (`KEY_ESC`) at any time to instantly discard the recording with a descending cancel earcon without querying STT or modifying the clipboard.
+- 🗄️ **Persistent Transcription History & Search**:
+  - All completed dictations are durably stored in `~/.local/share/openwhisper/history.sqlite3` using SQLite with WAL mode.
+  - **Dedicated History GUI (`openwhisper history --gui`)**: Standalone window with live substring search filtering, timestamp display, 1-click "📋 Copy" and "🗑️ Delete" buttons, and "Clear All History".
+  - **Rich CLI Subcommand (`openwhisper history`)**: List, search (`--search`), re-copy (`--copy <ID>`), prune (`--delete <ID>`), or export JSON (`--json`) directly from your terminal.
 - 🖥️ **Minimal Floating Status Overlay (HUD)**:
   - Frameless, translucent always-on-top pill widget rendered via `eframe` (Wayland + Glow).
   - Non-focus-stealing (`with_active(false)`) to maintain uninterrupted keyboard focus in your active application.
@@ -20,21 +25,26 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - **State Transitions**: Instant visual feedback for Recording (pulsing red dot), Transcribing (cyan acoustic orbit), Done (green checkmark and text snippet), and Error.
   - **Smooth Auto-Hide**: Automatically fades out smoothly when dictation completes.
   - Interactive standalone demo available via `openwhisper hud-demo`.
-- 🖥️ **StatusNotifierItem System Tray**:
+- 🖥️ **StatusNotifierItem System Tray & Health Diagnostics**:
   - Native KDE Plasma / Wayland D-Bus system tray item via `ksni`.
-  - Dynamic state icons: Idle (slate mic), Recording (pulsing red indicator), Transcribing (cyan acoustic orbit), and Error (amber alert).
-  - Embedded in-memory ARGB fallback pixmaps for instant rendering regardless of system icon indexing.
-  - Context menu: Instant Toggle Dictation, Open Settings..., and Quit.
-- ⚙️ **Native GUI Configuration Panel (`openwhisper config-gui`)**:
-  - Pure-Rust graphical window built with `egui` / `eframe` (Glow + Wayland).
-  - **Live Connection & Latency Tester**: Tests STT endpoint responsiveness and model inference in real time.
-  - **Interactive Audio Feedback**: Volume slider with live preview tone playback.
-  - **Floating HUD Settings**: Toggle HUD overlay and select screen position (`BottomCenter`, `TopCenter`, etc.).
+  - Dynamic state icons: Idle (slate mic), Recording (pulsing red indicator), Transcribing (cyan acoustic orbit), Degraded (amber fallback/network indicator), and Error (red alert).
+  - **Granular Hover Tooltip**: Displays daemon status, STT endpoint URL, active microphone device (with fallback badge), last transcription duration, and last error.
+  - **Recent Dictations Submenu**: Quick access to re-copy any of the last 10 dictations directly to clipboard from the tray menu.
+  - Context menu: Instant Toggle Dictation, Recent Dictations, Browse Full History..., Open Settings..., and Quit.
+- ⚙️ **Native Modern Settings Panel (`openwhisper config-gui`)**:
+  - Modern, responsive desktop GUI powered by Slint.
+  - **Interactive Microphone VU Meter**: Test microphone input with a live real-time audio VU meter bar and peak level diagnostics.
+  - **Live Connection & Latency Tester**: Tests STT endpoint reachability and Whisper model inference in real time.
+  - **Floating HUD Settings**: Toggle HUD overlay, select screen position (`BottomCenter`, `TopCenter`, etc.), and launch live HUD preview.
   - **Formatting & Vocabulary Manager**: Configure casing modes and add/remove custom bias words.
-  - **In-Memory IPC Reload**: Clicking "Save & Apply" persists `config.toml` and instantly reloads the running background daemon via IPC without restarting processes or dropping D-Bus/audio streams.
+  - **In-Memory IPC Reload**: Clicking "Save & Apply" persists `config.toml` and instantly reloads the running background daemon via IPC without dropping audio streams.
+- 🎙️ **Audio Hardware Resilience & Auto-Reconnection**:
+  - Automatic graceful fallback to system default input device if a configured custom microphone is disconnected or missing.
+  - Real-time stream error tracking via `cpal` callbacks.
+  - Automatic reconnection back to preferred microphone when re-plugged.
 - 🔊 **In-Memory Audio Feedback (Earcons)**:
   - Pure mathematical sine-wave PCM audio synthesis with smooth attack/decay envelopes (zero disk files).
-  - Acoustic state cues: Start recording (rising chime), Stop recording (descending tone), Transcribed (soft confirmation blip), and Error.
+  - Acoustic state cues: Start recording (rising chime), Stop recording (descending tone), Transcribed (soft confirmation blip), Cancel (descending two-tone), and Error.
   - Fully adjustable volume or toggleable in settings.
 - 🎙️ **Voice Activity Detection (VAD)**:
   - Real-time RMS silence gating running on a concurrent monitor thread without interrupting audio capture.
@@ -47,13 +57,14 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
     - `kebab-case`: Auto-converts to kebab-case (`k8s-pod-deployment`).
     - `Raw`: Verbatim transcription without automated punctuation.
   - **Domain Vocabulary Biasing**: Injects specialized technical terms (e.g. `Rust`, `Wayland`, `OpenVINO`, `cpal`) directly into Whisper's decoding prompt.
-- 📋 **Wayland Text Injection & Clipboard**:
-  - Automatically populates the clipboard (`wl-copy` with `arboard` fallback).
-  - Emits virtual keyboard keystroke (`Ctrl+V`) via `/dev/uinput` to paste directly into the active cursor position.
-  - Pure-Rust system PATH resolution (`std::env::split_paths`) with zero external `which` subprocess overhead.
+- 📋 **Wayland Text Injection & Direct Kernel Typing**:
+  - Virtual keyboard keystroke typing via `/dev/uinput` with shift modifier management and 2ms cadence.
+  - Fallback clipboard insertion (`wl-copy` with `arboard` fallback) with synthetic `Ctrl+V` keypress.
+  - Pure-Rust system PATH resolution (`std::env::split_paths`) with zero external subprocess overhead.
 - 🚀 **Local Inference & Zero-Disk Audio Pipeline**:
   - Audio captured via `cpal`, resampled in-memory to 16kHz mono 16-bit PCM, and packaged into WAV via `hound` inside a `Cursor<Vec<u8>>`.
   - Zero disk writes to `/tmp` for maximum throughput (<100ms latency overhead) and absolute user privacy.
+  - Optional paired audio & transcript logging to designated directory for dataset collection.
 - 🛠️ **Automated Setup Phase**:
   - One-command setup via `openwhisper setup`, `make install`, or `scripts/install.sh`.
   - Automates binary installation, Freedesktop icon theme deployment, `.desktop` menu registration, and user systemd service management.
@@ -243,6 +254,7 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 | `openwhisper reload` | `reload-config` | Reloads daemon configuration live via IPC |
 | `openwhisper hud-demo` | `hud`, `test-hud`| Launches interactive preview of the floating HUD overlay |
 | `openwhisper config-gui`| `gui`, `settings`| Opens native graphical configuration panel |
+| `openwhisper history`   | `hist`           | Browse, search, recopy, or inspect persistent transcription history (use `--gui` for standalone window) |
 | `openwhisper record` | | Standalone one-shot recording (press Enter to finish) |
 | `openwhisper test-ovms` | | Tests connectivity and latency to STT endpoint |
 | `openwhisper test-hotkey` | `test-key`, `sniff-keys` | Real-time evdev hardware key sniffer (inspect scancodes & hold times) |

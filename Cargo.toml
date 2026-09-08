@@ -54,3 +54,9 @@ winit = "0.30"
 [build-dependencies]
 slint-build = "1.17"
 
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.17"
+wiremock = "0.6"
+

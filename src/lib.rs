@@ -1,0 +1,12 @@
+pub mod audio;
+pub mod cli;
+pub mod config;
+pub mod gui;
+pub mod history;
+pub mod hotkey;
+pub mod hud;
+pub mod notification;
+pub mod output;
+pub mod setup;
+pub mod transcribe;
+pub mod tray;

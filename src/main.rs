@@ -1,15 +1,15 @@
-mod audio;
-mod cli;
-mod config;
-mod gui;
-pub mod history;
-mod hotkey;
-mod hud;
-mod notification;
-mod output;
-mod setup;
-mod transcribe;
-mod tray;
+use openwhisper::audio;
+use openwhisper::cli;
+use openwhisper::config;
+use openwhisper::gui;
+use openwhisper::history;
+use openwhisper::hotkey;
+use openwhisper::hud;
+use openwhisper::notification;
+use openwhisper::output;
+use openwhisper::setup;
+use openwhisper::transcribe;
+use openwhisper::tray;
 
 
 use anyhow::{Context, Result};

@@ -21,7 +21,7 @@ pub fn denoise_audio_mono(
     let samples_48k: Vec<f32> = if source_rate == 48_000 {
         mono_samples.to_vec()
     } else {
-        resample_linear(mono_samples, source_rate, 48_000)
+        crate::audio::resampler::resample_f32_mono(mono_samples, source_rate, 48_000)
     };
 
     // 2. Process through RNNoise DenoiseState in 480-sample chunks
@@ -49,37 +49,8 @@ pub fn denoise_audio_mono(
     if target_rate == 48_000 {
         denoised_48k
     } else {
-        resample_linear(&denoised_48k, 48_000, target_rate)
+        crate::audio::resampler::resample_f32_mono(&denoised_48k, 48_000, target_rate)
     }
-}
-
-/// Helper linear resampler for arbitrary single-channel f32 buffers
-fn resample_linear(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
-    if src_rate == dst_rate || samples.is_empty() {
-        return samples.to_vec();
-    }
-
-    let ratio = src_rate as f64 / dst_rate as f64;
-    let out_len = ((samples.len() as f64) / ratio).round() as usize;
-    let mut output = Vec::with_capacity(out_len);
-
-    for i in 0..out_len {
-        let src_idx = (i as f64) * ratio;
-        let idx_floor = src_idx.floor() as usize;
-        let frac = (src_idx - (idx_floor as f64)) as f32;
-
-        let sample = if idx_floor + 1 < samples.len() {
-            let s0 = samples[idx_floor];
-            let s1 = samples[idx_floor + 1];
-            s0 + frac * (s1 - s0)
-        } else if idx_floor < samples.len() {
-            samples[idx_floor]
-        } else {
-            0.0
-        };
-        output.push(sample);
-    }
-    output
 }
 
 #[cfg(test)]

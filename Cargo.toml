@@ -42,6 +42,7 @@ thiserror = "2.0"
 slint = { version = "1.17", default-features = false, features = ["std", "backend-default", "renderer-femtovg", "renderer-software", "accessibility", "compat-1-2"] }
 eframe = { version = "0.35.0", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
 rubato = "5.0.0"
+ringbuf = "0.5.1"
 
 # Linux / Wayland D-Bus portal & virtual input & system tray
 [target.'cfg(target_os = "linux")'.dependencies]

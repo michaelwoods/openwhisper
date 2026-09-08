@@ -4557,6 +4557,7 @@ dependencies = [
  "nnnoiseless",
  "notify-rust",
  "reqwest",
+ "ringbuf",
  "rubato",
  "rusqlite",
  "serde",
@@ -5441,6 +5442,17 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "ringbuf"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a158e09ede21a14b172ca6cdd6208386c6ae2cb6acef58d774368ef8c450dfa7"
+dependencies = [
+ "crossbeam-utils",
+ "portable-atomic",
+ "portable-atomic-util",
 ]
 
 [[package]]

@@ -2,6 +2,8 @@ use anyhow::{bail, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream};
 use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
+use ringbuf::traits::{Consumer, Observer, Producer, Split};
+use ringbuf::HeapRb;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -14,7 +16,7 @@ pub struct AudioRecorder {
 }
 
 pub struct ActiveRecording {
-    stream: Stream,
+    stream: Option<Stream>,
     samples: Arc<Mutex<Vec<f32>>>,
     channels: u16,
     sample_rate: u32,
@@ -24,6 +26,7 @@ pub struct ActiveRecording {
     device_name: String,
     #[allow(dead_code)]
     started_at: Instant,
+    drain_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl AudioRecorder {
@@ -104,11 +107,13 @@ impl AudioRecorder {
             sample_format
         );
 
+        let rb = HeapRb::<f32>::new((sample_rate as usize * 4).max(8192));
+        let (mut prod, mut cons) = rb.split();
+
         let samples = Arc::new(Mutex::new(Vec::<f32>::with_capacity(sample_rate as usize * 4)));
         let is_recording = Arc::new(AtomicBool::new(true));
         let stream_error = Arc::new(AtomicBool::new(false));
 
-        let samples_cb = Arc::clone(&samples);
         let is_recording_cb = Arc::clone(&is_recording);
         let stream_err_cb = Arc::clone(&stream_error);
         let dev_err_name = dev_name.clone();
@@ -124,9 +129,7 @@ impl AudioRecorder {
                     &default_config.into(),
                     move |data: &[f32], _: &_| {
                         if is_recording_cb.load(Ordering::Relaxed) {
-                            if let Ok(mut buf) = samples_cb.lock() {
-                                buf.extend_from_slice(data);
-                            }
+                            prod.push_slice(data);
                         }
                     },
                     err_fn,
@@ -138,11 +141,7 @@ impl AudioRecorder {
                     &default_config.into(),
                     move |data: &[i16], _: &_| {
                         if is_recording_cb.load(Ordering::Relaxed) {
-                            if let Ok(mut buf) = samples_cb.lock() {
-                                for &s in data {
-                                    buf.push(s as f32 / 32768.0);
-                                }
-                            }
+                            prod.push_iter(data.iter().map(|&s| s as f32 / 32768.0));
                         }
                     },
                     err_fn,
@@ -154,11 +153,7 @@ impl AudioRecorder {
                     &default_config.into(),
                     move |data: &[u16], _: &_| {
                         if is_recording_cb.load(Ordering::Relaxed) {
-                            if let Ok(mut buf) = samples_cb.lock() {
-                                for &s in data {
-                                    buf.push((s as f32 - 32768.0) / 32768.0);
-                                }
-                            }
+                            prod.push_iter(data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
                         }
                     },
                     err_fn,
@@ -168,10 +163,29 @@ impl AudioRecorder {
             _ => bail!("Unsupported sample format: {:?}", sample_format),
         };
 
+        let samples_draining = Arc::clone(&samples);
+        let is_recording_draining = Arc::clone(&is_recording);
+        let drain_handle = std::thread::Builder::new()
+            .name("audio-drain".to_string())
+            .spawn(move || {
+                let mut temp_buf = vec![0.0f32; 4096];
+                while is_recording_draining.load(Ordering::Relaxed) || !cons.is_empty() {
+                    let count = cons.pop_slice(&mut temp_buf);
+                    if count > 0 {
+                        if let Ok(mut buf) = samples_draining.lock() {
+                            buf.extend_from_slice(&temp_buf[..count]);
+                        }
+                    } else {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
+            })
+            .ok();
+
         stream.play().context("Failed to start audio stream")?;
 
         Ok(ActiveRecording {
-            stream,
+            stream: Some(stream),
             samples,
             channels,
             sample_rate,
@@ -180,6 +194,7 @@ impl AudioRecorder {
             is_fallback,
             device_name: dev_name,
             started_at: Instant::now(),
+            drain_handle,
         })
     }
 
@@ -285,9 +300,12 @@ impl ActiveRecording {
 
     /// Stops recording and encodes the captured audio into standard 16kHz mono WAV bytes,
     /// optionally applying RNNoise neural noise suppression before downsampling.
-    pub fn stop_with_options(self, noise_suppression: bool) -> Result<Vec<u8>> {
+    pub fn stop_with_options(mut self, noise_suppression: bool) -> Result<Vec<u8>> {
         self.is_recording.store(false, Ordering::SeqCst);
-        drop(self.stream);
+        drop(self.stream.take());
+        if let Some(handle) = self.drain_handle.take() {
+            let _ = handle.join();
+        }
 
         let raw_samples = {
             let mut guard = self.samples.lock().unwrap();
@@ -347,6 +365,16 @@ impl ActiveRecording {
         let wav_bytes = buffer.into_inner();
         tracing::info!("Encoded WAV audio size: {} bytes", wav_bytes.len());
         Ok(wav_bytes)
+    }
+}
+
+impl Drop for ActiveRecording {
+    fn drop(&mut self) {
+        self.is_recording.store(false, Ordering::SeqCst);
+        drop(self.stream.take());
+        if let Some(handle) = self.drain_handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 

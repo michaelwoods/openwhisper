@@ -20,7 +20,7 @@ This document details completed milestones, upcoming enhancements, and long-term
 | **Lock-Free Audio Ring Buffer** | Section 2.B | **Completed** | SPSC lock-free `HeapRb` ring buffer; zero mutexes in real-time `cpal` callback |
 | **Robust IPC Message Framing** | Section 2.C | **Completed** | Newline-delimited stream framing with BufReader; eliminates buffer truncation |
 | **Integration Tests & CI Pipeline** | Section 3 | **Completed** | 104 tests (93 unit, 6 CLI assert_cmd, 5 wiremock pipeline), GitHub/Forgejo CI |
-| **System Diagnostics (`doctor`)** | Section 6 | **Next Candidate** | Automated pre-flight health check CLI tool |
+| **System Diagnostics (`doctor`)** | Section 6 | **Completed** | Pre-flight health checks (config, audio, STT probe, uinput, IPC, KDE rules) |
 | **Spoken Punctuation Macros** | Section 7 | **Next Candidate** | Voice macros ("new line" $\to$ `\n`, "period" $\to$ `.`) |
 | **Custom Text Expansion** | Section 8 | **Planned** | Voice snippet expansion table in Settings |
 | **Context-Aware App Profiles** | Section 9 | **Planned** | Active window detection via KWin D-Bus for smart formatting |
@@ -139,19 +139,20 @@ High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2)
 
 ---
 
-## 6. Pre-Flight System Diagnostics (`openwhisper doctor`)
+## 6. [Completed] Pre-Flight System Diagnostics (`openwhisper doctor`)
 
 ### Motivation
 Diagnosing Wayland permissions, D-Bus session issues, remote inference endpoints, and audio capture devices during initial setup or troubleshooting should be instant and automated.
 
-### Planned Features
-- **CLI Diagnostic Command**: `openwhisper doctor` to inspect and output a health report:
-  - Configuration syntax and schema validation (`~/.config/openwhisper/config.toml`).
-  - `/dev/uinput` permissions and ACL verification (`user:$USER:rw-`).
-  - Active audio capture device availability, sample rate compatibility, and input level check.
-  - Remote STT endpoint reachability and latency probe (`http://frigg:8000/v1/audio/transcriptions`).
-  - KDE Plasma KWin rule inspection (`kwinrulesrc` position and reconfigure status).
-  - Evdev hardware keyboard device detection (`/dev/input/event*`).
+### Implementation & Features
+- **Command**: `openwhisper doctor` (aliases: `check-system`, `diag`) with optional `--json` machine-readable output.
+- **Diagnostics Performed**:
+  1. **Configuration**: Path resolution, permissions, syntax/schema validation, active model, server URL, audio device, output mode.
+  2. **Audio Hardware**: Enumerates available microphones, selects active capture device, initializes a non-blocking test stream, and measures ambient RMS energy levels.
+  3. **STT Inference Backend**: Synthesizes a test tone WAV in-memory, transmits it to `config.server_url`, probes network reachability, verifies HTTP status, reports latency in milliseconds, and provides root-cause remediation tips (e.g. server offline, auth token invalid, model 404).
+  4. **Virtual Input & Wayland**: Validates `/dev/uinput` read/write permissions for emulated `Ctrl+V`, detects compositor type (`wayland-0` / X11), and checks availability of clipboard (`wl-copy`, `wl-paste`, `xclip`) and virtual typing tools (`wtype`, `ydotool`).
+  5. **Daemon & IPC Service**: Probes the Unix domain socket (`/run/user/<UID>/openwhisper.sock`) with `IpcCommand::Status`, and falls back to inspecting `systemctl --user is-active openwhisper.service`.
+  6. **Desktop Integration**: Verifies scalable vector icons (`openwhisper.svg`), desktop entries (`net.local.openwhisper.desktop`), KDE Plasma KWin floating rules, and accessibility of hardware keyboard devices via evdev.
 
 ---
 

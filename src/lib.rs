@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod cli;
 pub mod config;
+pub mod doctor;
 pub mod gui;
 pub mod history;
 pub mod hotkey;

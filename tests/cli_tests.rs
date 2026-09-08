@@ -67,3 +67,34 @@ fn test_cli_invalid_argument() {
         .failure()
         .stderr(predicate::str::contains("unexpected argument"));
 }
+
+#[test]
+fn test_cli_doctor_text() {
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    let output = cmd.arg("doctor").output().expect("run doctor");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("OpenWhisper System Diagnostics"));
+    assert!(combined.contains("Configuration"));
+    assert!(combined.contains("Audio Hardware"));
+    assert!(combined.contains("Summary:"));
+}
+
+#[test]
+fn test_cli_doctor_json() {
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    let output = cmd
+        .args(["doctor", "--json"])
+        .output()
+        .expect("run doctor json");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("doctor --json must output valid JSON");
+    assert!(parsed.get("timestamp").is_some());
+    assert!(parsed.get("overall_status").is_some());
+    assert!(parsed.get("checks").is_some());
+    let checks = parsed["checks"].as_array().expect("checks array");
+    assert!(checks.iter().any(|c| c["name"] == "Configuration"));
+    assert!(checks.iter().any(|c| c["name"] == "Audio Hardware"));
+}

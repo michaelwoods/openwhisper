@@ -117,6 +117,14 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         gui: bool,
     },
+
+    /// Run comprehensive pre-flight system diagnostics and health checks
+    #[command(alias = "check-system", alias = "diag")]
+    Doctor {
+        /// Output diagnostic results formatted as JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 #[cfg(test)]

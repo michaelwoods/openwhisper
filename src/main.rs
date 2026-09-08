@@ -1,6 +1,7 @@
 use openwhisper::audio;
 use openwhisper::cli;
 use openwhisper::config;
+use openwhisper::doctor;
 use openwhisper::gui;
 use openwhisper::history;
 use openwhisper::hotkey;
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "openwhisper=info,warn".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 
     let cli = Cli::parse();
@@ -331,6 +332,11 @@ async fn main() -> Result<()> {
                 total_in_db
             );
 
+            Ok(())
+        }
+
+        Commands::Doctor { json } => {
+            doctor::run_doctor(&config, json).await?;
             Ok(())
         }
 

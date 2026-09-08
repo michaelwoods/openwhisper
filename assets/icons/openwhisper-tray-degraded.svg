@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Amber Microphone -->
+  <rect x="8.5" y="2" width="7" height="11" rx="3.5" fill="#f59e0b" />
+  <path d="M 5 9.5 C 5 14 8 16.5 12 16.5 C 16 16.5 19 9.5 19 9.5" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+  <line x1="12" y1="16.5" x2="12" y2="21" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" />
+  <line x1="7.5" y1="21" x2="16.5" y2="21" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" />
+  <!-- Warning badge badge with exclamation -->
+  <circle cx="19" cy="4.5" r="3.5" fill="#f59e0b" stroke="#1e2127" stroke-width="1.2" />
+  <line x1="19" y1="2.8" x2="19" y2="5" stroke="#1e2127" stroke-width="1.1" stroke-linecap="round" />
+  <circle cx="19" cy="6.4" r="0.6" fill="#1e2127" />
+</svg>

@@ -13,6 +13,8 @@ const TRAY_RECORDING_ICON: &str = include_str!("../assets/icons/openwhisper-tray
 #[cfg(target_os = "linux")]
 const TRAY_TRANSCRIBING_ICON: &str = include_str!("../assets/icons/openwhisper-tray-transcribing.svg");
 #[cfg(target_os = "linux")]
+const TRAY_DEGRADED_ICON: &str = include_str!("../assets/icons/openwhisper-tray-degraded.svg");
+#[cfg(target_os = "linux")]
 const TRAY_ERROR_ICON: &str = include_str!("../assets/icons/openwhisper-tray-error.svg");
 #[cfg(target_os = "linux")]
 const SERVICE_UNIT: &str = include_str!("../systemd/openwhisper.service");
@@ -118,6 +120,7 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-idle.svg"), TRAY_IDLE_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-recording.svg"), TRAY_RECORDING_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-transcribing.svg"), TRAY_TRANSCRIBING_ICON);
+    let _ = fs::write(status_icon_dir.join("openwhisper-tray-degraded.svg"), TRAY_DEGRADED_ICON);
     let _ = fs::write(status_icon_dir.join("openwhisper-tray-error.svg"), TRAY_ERROR_ICON);
     let _ = fs::write(pixmaps_dir.join("openwhisper.svg"), APP_ICON);
 

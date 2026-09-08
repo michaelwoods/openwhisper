@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <!-- Processing orbital indicators -->
-  <circle cx="12" cy="12" r="10" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="8 4" stroke-linecap="round" />
-
-  <!-- Microphone capsule -->
-  <rect x="9" y="4" width="6" height="10" rx="3" fill="#38bdf8" stroke="#ffffff" stroke-width="1.2" />
-  <path d="M 6.5 11 C 6.5 14 9 15.5 12 15.5 C 15 15.5 17.5 14 17.5 11" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
-  <line x1="12" y1="15.5" x2="12" y2="19" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
-  <line x1="9" y1="19" x2="15" y2="19" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" />
+  <!-- Clean Cyan Sound Arcs -->
+  <path d="M 3.2 8 C 1.6 10.2 1.6 13.8 3.2 16" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M 20.8 8 C 22.4 10.2 22.4 13.8 20.8 16" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" />
+  <!-- Cyan Microphone -->
+  <rect x="8.5" y="2" width="7" height="11" rx="3.5" fill="#38bdf8" />
+  <path d="M 5 9.5 C 5 14 8 16.5 12 16.5 C 16 16.5 19 9.5 19 9.5" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+  <line x1="12" y1="16.5" x2="12" y2="21" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" />
+  <line x1="7.5" y1="21" x2="16.5" y2="21" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" />
 </svg>

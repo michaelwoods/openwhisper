@@ -56,12 +56,18 @@ install -Dm644 assets/icons/openwhisper.svg "$ICON_DIR/scalable/apps/openwhisper
 install -Dm644 assets/icons/openwhisper-tray-idle.svg "$ICON_DIR/scalable/status/openwhisper-tray-idle.svg"
 install -Dm644 assets/icons/openwhisper-tray-recording.svg "$ICON_DIR/scalable/status/openwhisper-tray-recording.svg"
 install -Dm644 assets/icons/openwhisper-tray-transcribing.svg "$ICON_DIR/scalable/status/openwhisper-tray-transcribing.svg"
+install -Dm644 assets/icons/openwhisper-tray-degraded.svg "$ICON_DIR/scalable/status/openwhisper-tray-degraded.svg"
 install -Dm644 assets/icons/openwhisper-tray-error.svg "$ICON_DIR/scalable/status/openwhisper-tray-error.svg"
 
 # Also install into pixmaps as universal fallback
 install -Dm644 assets/icons/openwhisper.svg "$HOME/.local/share/pixmaps/openwhisper.svg"
+install -Dm644 assets/icons/openwhisper-tray-idle.svg "$HOME/.local/share/pixmaps/openwhisper-tray-idle.svg"
+install -Dm644 assets/icons/openwhisper-tray-recording.svg "$HOME/.local/share/pixmaps/openwhisper-tray-recording.svg"
+install -Dm644 assets/icons/openwhisper-tray-transcribing.svg "$HOME/.local/share/pixmaps/openwhisper-tray-transcribing.svg"
+install -Dm644 assets/icons/openwhisper-tray-degraded.svg "$HOME/.local/share/pixmaps/openwhisper-tray-degraded.svg"
+install -Dm644 assets/icons/openwhisper-tray-error.svg "$HOME/.local/share/pixmaps/openwhisper-tray-error.svg"
 
-# Render multi-resolution PNGs if ImageMagick or ffmpeg is available
+# Render multi-resolution PNGs if ImageMagick is available
 CONVERT_TOOL=""
 if command -v magick >/dev/null 2>&1; then
     CONVERT_TOOL="magick"
@@ -70,16 +76,29 @@ elif command -v convert >/dev/null 2>&1; then
 fi
 
 if [ -n "$CONVERT_TOOL" ]; then
-    for size in 16 24 32 48 64 128 256 512; do
+    for size in 16 22 24 32 48 64 128 256 512; do
         mkdir -p "$ICON_DIR/${size}x${size}/apps"
         $CONVERT_TOOL -background none assets/icons/openwhisper.svg -resize "${size}x${size}" "$ICON_DIR/${size}x${size}/apps/openwhisper.png" 2>/dev/null || true
     done
     cp "$ICON_DIR/256x256/apps/openwhisper.png" "$HOME/.local/share/pixmaps/openwhisper.png" 2>/dev/null || true
+
+    for size in 16 22 24 32 48 64; do
+        mkdir -p "$ICON_DIR/${size}x${size}/status"
+        for icon in idle recording transcribing degraded error; do
+            $CONVERT_TOOL -background none "assets/icons/openwhisper-tray-${icon}.svg" -resize "${size}x${size}" "$ICON_DIR/${size}x${size}/status/openwhisper-tray-${icon}.png" 2>/dev/null || true
+        done
+    done
+    for icon in idle recording transcribing degraded error; do
+        cp "$ICON_DIR/24x24/status/openwhisper-tray-${icon}.png" "$HOME/.local/share/pixmaps/openwhisper-tray-${icon}.png" 2>/dev/null || true
+    done
 fi
 
 # Update icon cache if tools are available
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -q -t -f "$ICON_DIR" 2>/dev/null || true
+fi
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental 2>/dev/null || true
 fi
 
 echo "==> Installing desktop entries..."

@@ -45,19 +45,19 @@ impl OpenWhisperTray {
         }
     }
 
-    /// Generate a 24x24 ARGB fallback icon pixmap in-memory
+    /// Generate a 24x24 ARGB fallback icon pixmap in-memory with a bold, solid silhouette
     fn generate_fallback_icon(&self, state: TrayState) -> ksni::Icon {
         let width = 24;
         let height = 24;
         let mut data = vec![0u8; width * height * 4];
 
-        // Color scheme based on state: [A, R, G, B]
+        // High-contrast colors matching standard desktop tray themes
         let (r, g, b) = match state {
-            TrayState::Idle => (241, 245, 249),        // Crisp light white/slate
-            TrayState::Recording => (239, 68, 68),      // Vivid red
-            TrayState::Transcribing => (56, 189, 248),  // Cyan blue
-            TrayState::Degraded => (245, 158, 11),      // Amber warning (fallback mic / network)
-            TrayState::Error => (239, 68, 68),          // Vivid red alert
+            TrayState::Idle => (248, 250, 252),        // Crisp bright white (#f8fafc)
+            TrayState::Recording => (239, 68, 68),      // Vivid red (#ef4444)
+            TrayState::Transcribing => (56, 189, 248),  // Cyan blue (#38bdf8)
+            TrayState::Degraded => (245, 158, 11),      // Warm amber (#f59e0b)
+            TrayState::Error => (148, 163, 184),        // Muted slate (#94a3b8)
         };
 
         for y in 0..height {
@@ -65,34 +65,85 @@ impl OpenWhisperTray {
                 let idx = (y * width + x) * 4;
                 let mut filled = false;
 
-                // Simple microphone shape rasterizer
-                // Capsule: x in 9..=14, y in 3..=13
-                if (9..=14).contains(&x) && (3..=13).contains(&y) {
+                // Bold solid microphone capsule: x in 8..=15, y in 2..=12
+                if (8..=15).contains(&x) && (2..=12).contains(&y) {
+                    // Rounded top & bottom corners
+                    let is_top_corner = (x == 8 || x == 15) && y == 2;
+                    let is_bottom_corner = (x == 8 || x == 15) && y == 12;
+                    if !is_top_corner && !is_bottom_corner {
+                        filled = true;
+                    }
+                }
+
+                // U-shape cradle:
+                // Left arm: x in 5..=6, y in 9..=14
+                if (5..=6).contains(&x) && (9..=14).contains(&y) {
                     filled = true;
                 }
-                // U-shape cradle: y == 13..=16, x == 6 or x == 17
-                if (11..=15).contains(&y) && (x == 6 || x == 17) {
+                // Right arm: x in 17..=18, y in 9..=14
+                if (17..=18).contains(&x) && (9..=14).contains(&y) {
                     filled = true;
                 }
-                if y == 16 && (6..=17).contains(&x) {
-                    filled = true;
-                }
-                // Stand stem: x in 11..=12, y in 17..=20
-                if (11..=12).contains(&x) && (17..=20).contains(&y) {
-                    filled = true;
-                }
-                // Base: y == 21, x in 8..=15
-                if y == 21 && (8..=15).contains(&x) {
+                // Bottom cradle curve: y in 15..=16, x in 6..=17
+                if (y == 15 || y == 16) && (6..=17).contains(&x) {
                     filled = true;
                 }
 
-                // If recording, add a red indicator dot in top-right
-                if state == TrayState::Recording && (1..=5).contains(&y) && (17..=21).contains(&x) {
-                    data[idx] = 255;     // Alpha
-                    data[idx + 1] = 239; // Red
-                    data[idx + 2] = 68;  // Green
-                    data[idx + 3] = 68;  // Blue
+                // Stand stem: x in 11..=12, y in 16..=20
+                if (11..=12).contains(&x) && (16..=20).contains(&y) {
+                    filled = true;
+                }
+
+                // Base: x in 7..=16, y in 20..=21
+                if (7..=16).contains(&x) && (20..=21).contains(&y) {
+                    filled = true;
+                }
+
+                // State accents:
+                // Recording: sound wave arcs
+                if state == TrayState::Recording && ((2..=3).contains(&x) || (20..=21).contains(&x)) && (8..=14).contains(&y) {
+                    data[idx] = 255;
+                    data[idx + 1] = 239;
+                    data[idx + 2] = 68;
+                    data[idx + 3] = 68;
                     continue;
+                }
+
+                // Transcribing: side bracket arcs
+                if state == TrayState::Transcribing && ((2..=3).contains(&x) || (20..=21).contains(&x)) && (8..=15).contains(&y) {
+                    data[idx] = 255;
+                    data[idx + 1] = 56;
+                    data[idx + 2] = 189;
+                    data[idx + 3] = 248;
+                    continue;
+                }
+
+                // State badge dots (top right 18..=21, 2..=5)
+                if (18..=21).contains(&x) && (2..=5).contains(&y) {
+                    match state {
+                        TrayState::Recording => {
+                            data[idx] = 255;
+                            data[idx + 1] = 239;
+                            data[idx + 2] = 68;
+                            data[idx + 3] = 68;
+                            continue;
+                        }
+                        TrayState::Degraded => {
+                            data[idx] = 255;
+                            data[idx + 1] = 245;
+                            data[idx + 2] = 158;
+                            data[idx + 3] = 11;
+                            continue;
+                        }
+                        TrayState::Error => {
+                            data[idx] = 255;
+                            data[idx + 1] = 239;
+                            data[idx + 2] = 68;
+                            data[idx + 3] = 68;
+                            continue;
+                        }
+                        _ => {}
+                    }
                 }
 
                 if filled {
@@ -133,6 +184,21 @@ impl ksni::Tray for OpenWhisperTray {
 
     fn status(&self) -> ksni::Status {
         ksni::Status::Active
+    }
+
+    fn icon_theme_path(&self) -> String {
+        // Resolve user icon directory ~/.local/share/icons/hicolor or system /usr/share/icons/hicolor
+        if let Some(mut path) = directories::BaseDirs::new().map(|b| b.data_dir().to_path_buf()) {
+            path.push("icons");
+            path.push("hicolor");
+            if path.exists() {
+                return path.to_string_lossy().to_string();
+            }
+        }
+        if std::path::Path::new("/usr/share/icons/hicolor").exists() {
+            return "/usr/share/icons/hicolor".to_string();
+        }
+        String::new()
     }
 
     fn icon_name(&self) -> String {

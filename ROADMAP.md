@@ -43,7 +43,41 @@ While OpenWhisper currently targets Linux on Wayland (Fedora / KDE Plasma 6), th
 
 ---
 
-## 2. Streaming & Real-Time Dictation
+## 2. Core Audio & Runtime Reliability Fixes
+
+### A. Replace Naive Resampler with Sinc-Based Resampling
+- **Problem**: `resample_to_mono_16k` in `src/audio/resampler.rs` uses linear interpolation for downsampling (e.g. 48kHz → 16kHz) **without an anti-aliasing low-pass filter**. Frequencies above the Nyquist limit (8kHz) fold back into the audible band, corrupting the spectral content Whisper relies on and degrading transcription accuracy. The same flawed logic is duplicated in `src/audio/denoise.rs`.
+- **Solution**: Replace with [`rubato::SincFixedIn`](https://crates.io/crates/rubato) for high-quality sinc resampling. Delete the duplicated `resample_linear` in `denoise.rs` and share a single resampling path.
+
+### B. Lock-Free Audio Callback Buffer
+- **Problem**: The `cpal` real-time audio input callback in `src/audio/recorder.rs` acquires a `Mutex<Vec<f32>>` on every buffer delivery (~every 5ms). If the main thread holds this lock (e.g. during `stop_with_options`), the callback blocks, causing buffer overruns and audio dropouts.
+- **Solution**: Replace `Arc<Mutex<Vec<f32>>>` with a lock-free ring buffer (e.g. [`ringbuf`](https://crates.io/crates/ringbuf) or [`rtrb`](https://crates.io/crates/rtrb)). A consumer thread drains the ring buffer without contending with the real-time callback.
+
+### C. Robust IPC Socket Message Framing
+- **Problem**: The IPC server in `src/hotkey/ipc.rs` reads into a fixed `[0u8; 512]` buffer with a single `read()` call. Commands larger than 512 bytes are silently truncated and fail to parse; fragmented Unix socket reads produce partial JSON that is silently dropped.
+- **Solution**: Switch to newline-delimited JSON lines protocol using `tokio::io::AsyncBufReadExt::read_line`, or implement length-prefixed framing.
+
+---
+
+## 3. Testing Infrastructure & CI
+
+### A. Integration Test Suite
+- **Problem**: The project has 91 unit tests across 22 source files but zero integration tests. End-to-end flows (record → resample → transcribe → output) are completely untested, and there is no `tests/` directory.
+- **Planned**:
+  - Add a `tests/` directory with integration tests covering the full dictation pipeline using mock audio data and a local mock STT server ([`wiremock`](https://crates.io/crates/wiremock)).
+  - Add `[dev-dependencies]` for `wiremock`, `tempfile`, and `assert_cmd` to support HTTP mocking, temp fixtures, and CLI binary testing.
+  - Populate the empty `examples/` directory with runnable usage examples for contributors.
+
+### B. Continuous Integration Pipeline
+- **Problem**: There is no CI/CD configuration. Tests only run when manually invoked via `cargo test` or `make test`. Regressions can land undetected.
+- **Planned**:
+  - Add a GitHub Actions workflow (`.github/workflows/ci.yml`) running `cargo check`, `cargo test`, `cargo clippy`, and `cargo fmt --check` on every push and pull request.
+  - Matrix-test across stable and nightly Rust toolchains.
+  - Cache `~/.cargo` and `target/` for fast CI builds.
+
+---
+
+## 4. Streaming & Real-Time Dictation
 
 ### Motivation
 For lengthy dictation sessions, seeing words appear in real time reduces perceived latency and provides immediate feedback on speech recognition accuracy.
@@ -64,7 +98,7 @@ For lengthy dictation sessions, seeing words appear in real time reduces perceiv
 
 ---
 
-## 3. Audio Dataset Collection & TTS Voice Cloning
+## 5. Audio Dataset Collection & TTS Voice Cloning
 
 ### Motivation
 High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2) require hundreds of paired `.wav` audio files and matching text transcripts to train or fine-tune personalized synthetic voices.
@@ -75,7 +109,7 @@ High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2)
 
 ---
 
-## 4. Pre-Flight System Diagnostics (`openwhisper doctor`)
+## 6. Pre-Flight System Diagnostics (`openwhisper doctor`)
 
 ### Motivation
 Diagnosing Wayland permissions, D-Bus session issues, remote inference endpoints, and audio capture devices during initial setup or troubleshooting should be instant and automated.
@@ -91,7 +125,7 @@ Diagnosing Wayland permissions, D-Bus session issues, remote inference endpoints
 
 ---
 
-## 5. Spoken Punctuation & Keyword Formatting Macros
+## 7. Spoken Punctuation & Keyword Formatting Macros
 
 ### Motivation
 Whisper models vary in how reliably they handle explicit punctuation instructions. Sometimes "new line" is transcribed literally as words, or users want to speak formatting commands without an LLM.
@@ -110,7 +144,7 @@ Whisper models vary in how reliably they handle explicit punctuation instruction
 
 ---
 
-## 6. Custom Text Expansion & Snippets (Personal Dictionary)
+## 8. Custom Text Expansion & Snippets (Personal Dictionary)
 
 ### Motivation
 Dictating complex technical email addresses, long URLs, boilerplate code blocks, or kaomoji/emojis by voice is error-prone.
@@ -124,7 +158,7 @@ Dictating complex technical email addresses, long URLs, boilerplate code blocks,
 
 ---
 
-## 7. Context-Aware Automatic Formatting (Smart App Profiles)
+## 9. Context-Aware Automatic Formatting (Smart App Profiles)
 
 ### Motivation
 Dictating in a Linux terminal or IDE requires different formatting (lowercase, no trailing spaces/periods, snake_case) than writing an email or chat message in Thunderbird or Slack.
@@ -137,7 +171,7 @@ Dictating in a Linux terminal or IDE requires different formatting (lowercase, n
 
 ---
 
-## 8. LLM Post-Processing & Smart Dictation Styles
+## 10. LLM Post-Processing & Smart Dictation Styles
 
 ### Motivation
 Spoken language frequently contains conversational artifacts such as filler words ("um", "uh", "you know"), stutters, false starts, and self-corrections ("let's meet Tuesday, wait, I mean Wednesday").

@@ -172,51 +172,67 @@ impl ksni::Tray for OpenWhisperTray {
         ];
 
         let history_items = self.history.read().map(|h| h.clone()).unwrap_or_default();
-        if !history_items.is_empty() {
-            let mut recent_subitems: Vec<ksni::MenuItem<Self>> = Vec::new();
-            for (idx, item) in history_items.iter().take(5).enumerate() {
-                let full_text = item.clone();
-                let display_text = if full_text.chars().count() > 36 {
-                    let truncated: String = full_text.chars().take(36).collect();
-                    format!("{}. {}...", idx + 1, truncated)
-                } else {
-                    format!("{}. {}", idx + 1, full_text)
-                };
+        let mut recent_subitems: Vec<ksni::MenuItem<Self>> = Vec::new();
+        for (idx, item) in history_items.iter().take(10).enumerate() {
+            let full_text = item.clone();
+            let display_text = if full_text.chars().count() > 36 {
+                let truncated: String = full_text.chars().take(36).collect();
+                format!("{}. {}...", idx + 1, truncated)
+            } else {
+                format!("{}. {}", idx + 1, full_text)
+            };
 
-                recent_subitems.push(
-                    StandardItem {
-                        label: display_text,
-                        activate: Box::new(move |_| {
-                            let text = full_text.clone();
-                            if let Err(e) = crate::output::set_clipboard(&text) {
-                                warn!("Failed to copy recent item to clipboard: {e}");
-                            } else {
-                                info!("Copied recent transcription to clipboard from tray menu");
-                                std::thread::spawn(move || {
-                                    let _ = notify_rust::Notification::new()
-                                        .summary("OpenWhisper — Copied to Clipboard")
-                                        .body(&text)
-                                        .icon("openwhisper")
-                                        .timeout(notify_rust::Timeout::Milliseconds(3000))
-                                        .show();
-                                });
-                            }
-                        }),
-                        ..Default::default()
-                    }
-                    .into(),
-                );
-            }
-
-            items.push(
-                SubMenu {
-                    label: "📋  Recent Dictations".into(),
-                    submenu: recent_subitems,
+            recent_subitems.push(
+                StandardItem {
+                    label: display_text,
+                    activate: Box::new(move |_| {
+                        let text = full_text.clone();
+                        if let Err(e) = crate::output::set_clipboard(&text) {
+                            warn!("Failed to copy recent item to clipboard: {e}");
+                        } else {
+                            info!("Copied recent transcription to clipboard from tray menu");
+                            std::thread::spawn(move || {
+                                let _ = notify_rust::Notification::new()
+                                    .summary("OpenWhisper — Copied to Clipboard")
+                                    .body(&text)
+                                    .icon("openwhisper")
+                                    .timeout(notify_rust::Timeout::Milliseconds(3000))
+                                    .show();
+                            });
+                        }
+                    }),
                     ..Default::default()
                 }
                 .into(),
             );
         }
+
+        if !history_items.is_empty() {
+            recent_subitems.push(MenuItem::Separator);
+        }
+        recent_subitems.push(
+            StandardItem {
+                label: "🔍  Browse Full History...".into(),
+                activate: Box::new(|_| {
+                    info!("Launching OpenWhisper History GUI from tray menu...");
+                    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openwhisper"));
+                    if let Err(e) = std::process::Command::new(exe).arg("history").arg("--gui").spawn() {
+                        warn!("Failed to spawn history GUI: {}", e);
+                    }
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
+
+        items.push(
+            SubMenu {
+                label: "📋  Recent Dictations".into(),
+                submenu: recent_subitems,
+                ..Default::default()
+            }
+            .into(),
+        );
 
         items.push(
             StandardItem {

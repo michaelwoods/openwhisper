@@ -58,6 +58,10 @@ impl TranscriptionClient {
         self.formatting_mode
     }
 
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
     pub async fn transcribe(&self, wav_bytes: Vec<u8>) -> Result<String> {
         if wav_bytes.is_empty() {
             bail!("Audio data is empty, cannot transcribe");

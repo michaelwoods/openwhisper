@@ -2,6 +2,7 @@ mod audio;
 mod cli;
 mod config;
 mod gui;
+pub mod history;
 mod hotkey;
 mod hud;
 mod notification;
@@ -171,6 +172,104 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
+        Commands::History {
+            limit,
+            search,
+            copy,
+            delete,
+            clear,
+            json,
+            gui,
+        } => {
+            let mgr = Arc::new(history::HistoryManager::new(None)?);
+
+            if gui {
+                history::gui::run_history_gui(mgr)?;
+                return Ok(());
+            }
+
+            if let Some(id) = copy {
+                if let Some(entry) = mgr.get_by_id(id)? {
+                    output::set_clipboard(&entry.text)?;
+                    println!("Copied transcription #{} to clipboard:\n{}", id, entry.text);
+                } else {
+                    eprintln!("Error: No history entry found with ID #{}", id);
+                }
+                return Ok(());
+            }
+
+            if let Some(id) = delete {
+                if mgr.delete(id)? {
+                    println!("Deleted history entry #{}", id);
+                } else {
+                    eprintln!("Error: No history entry found with ID #{}", id);
+                }
+                return Ok(());
+            }
+
+            if clear {
+                mgr.clear_all()?;
+                println!("All transcription history cleared.");
+                return Ok(());
+            }
+
+            let entries = if let Some(ref q) = search {
+                mgr.search(q, limit)?
+            } else {
+                mgr.list(limit, 0)?
+            };
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+                return Ok(());
+            }
+
+            if entries.is_empty() {
+                if let Some(ref q) = search {
+                    println!("No transcriptions found matching query: {:?}", q);
+                } else {
+                    println!("No transcription history found. Run dictations with OpenWhisper to populate history.");
+                }
+                return Ok(());
+            }
+
+            let total_in_db = mgr.count()?;
+            println!("\n  ID  | Time (Local)        | Dur  | Chars | Transcription");
+            println!("------+---------------------+------+-------+--------------------------------------------------");
+            for e in &entries {
+                let local_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&e.timestamp) {
+                    let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(dt);
+                    local.format("%Y-%m-%d %H:%M:%S").to_string()
+                } else {
+                    e.timestamp.clone()
+                };
+
+                let display_text = if e.text.chars().count() > 50 {
+                    let truncated: String = e.text.chars().take(47).collect();
+                    format!("{}...", truncated)
+                } else {
+                    e.text.clone()
+                };
+
+                println!(
+                    "{:>5} | {:<19} | {:>4.1}s | {:>5} | {}",
+                    e.id.unwrap_or(0),
+                    local_time,
+                    e.duration_secs,
+                    e.char_count,
+                    display_text
+                );
+            }
+            println!("------+---------------------+------+-------+--------------------------------------------------");
+            println!(
+                "Showing {} of {} entries in database. Use `openwhisper history --gui` for GUI, or `--copy <ID>` to re-copy.\n",
+                entries.len(),
+                total_in_db
+            );
+
+            Ok(())
+        }
+
         Commands::Daemon { config: cfg_path } => {
             let active_config = if let Some(p) = cfg_path {
                 let content = std::fs::read_to_string(&p)
@@ -218,6 +317,22 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
     println!("{}", text);
     println!("--------------------------------------------------");
 
+    let hist_entry = history::HistoryEntry {
+        id: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        text: text.clone(),
+        raw_text: None,
+        duration_secs: elapsed,
+        char_count: text.chars().count(),
+        model: config.model.clone(),
+        output_mode: format!("{:?}", config.output_mode),
+    };
+    if let Ok(mgr) = history::HistoryManager::new(None) {
+        if let Err(e) = mgr.record(&hist_entry) {
+            tracing::warn!("Failed to persist transcription to history: {e}");
+        }
+    }
+
     if let Some(ref dir_str) = config.save_audio_dir {
         let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);
     }
@@ -251,6 +366,7 @@ async fn run_daemon(config: Config) -> Result<()> {
     let engine = Arc::new(Mutex::new(HotkeyEngine::new(config.ptt_threshold_ms)));
     let active_recording: Arc<Mutex<Option<audio::ActiveRecording>>> = Arc::new(Mutex::new(None));
     let mut recorder = Arc::new(AudioRecorder::new(config.audio_device.clone()));
+    let history_mgr = Arc::new(history::HistoryManager::new(None)?);
     let mut active_config = config;
 
     // Spawn IPC Unix Socket Server
@@ -471,9 +587,11 @@ async fn run_daemon(config: Config) -> Result<()> {
                     let engine_clone = Arc::clone(&engine);
                     let tray_ctrl_clone = tray_ctrl.clone();
                     let hud_ctrl_clone = hud_ctrl.clone();
+                    let history_mgr_clone = Arc::clone(&history_mgr);
 
                     let noise_suppression = active_config.noise_suppression;
                     let save_audio_dir = active_config.save_audio_dir.clone();
+                    let output_mode = active_config.output_mode;
                     let wav_res = rec.stop_with_options(noise_suppression);
                     tokio::spawn(async move {
                         match wav_res {
@@ -487,6 +605,20 @@ async fn run_daemon(config: Config) -> Result<()> {
                                     Ok(text) => {
                                         let duration = start.elapsed().as_secs_f32();
                                         tracing::info!("Transcribed in {:.2}s: {:?}", duration, text);
+
+                                        let hist_entry = history::HistoryEntry {
+                                            id: None,
+                                            timestamp: chrono::Utc::now().to_rfc3339(),
+                                            text: text.clone(),
+                                            raw_text: None,
+                                            duration_secs: duration,
+                                            char_count: text.chars().count(),
+                                            model: client_clone.read().await.model().to_string(),
+                                            output_mode: format!("{:?}", output_mode),
+                                        };
+                                        if let Err(err) = history_mgr_clone.record(&hist_entry) {
+                                            tracing::warn!("Failed to persist transcription history: {err}");
+                                        }
 
                                         if let Some(ref dir_str) = save_audio_dir {
                                             let _ = crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text);

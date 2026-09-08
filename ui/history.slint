@@ -1,0 +1,224 @@
+import { Button, LineEdit, ScrollView, HorizontalBox, VerticalBox } from "std-widgets.slint";
+
+export struct HistoryItem {
+    id: int,
+    timestamp: string,
+    text: string,
+    meta_info: string,
+}
+
+export component HistoryWindow inherits Window {
+    title: "OpenWhisper — Dictation History";
+    preferred-width: 680px;
+    preferred-height: 640px;
+    min-width: 520px;
+    min-height: 420px;
+
+    in-out property <string> search-query: "";
+    in-out property <[HistoryItem]> history-items: [];
+    in-out property <string> summary-text: "Loading history...";
+    in-out property <string> toast-text: "";
+    in-out property <bool> is-empty: false;
+
+    callback search-changed(string);
+    callback copy-item(int);
+    callback delete-item(int);
+    callback clear-history();
+    callback refresh();
+    callback close-window();
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                spacing: 2px;
+                horizontal-stretch: 1;
+                Text {
+                    text: "Transcription History";
+                    font-size: 16px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: "Search, review, and re-copy past speech-to-text dictations.";
+                    font-size: 11px;
+                    color: #8c939f;
+                }
+            }
+        }
+
+        // Search Bar & Controls
+        HorizontalLayout {
+            spacing: 8px;
+            search-input := LineEdit {
+                text <=> root.search-query;
+                placeholder-text: "🔍  Search past transcriptions...";
+                horizontal-stretch: 1;
+                edited(query) => {
+                    root.search-changed(query);
+                }
+            }
+
+            if root.search-query != "": Button {
+                text: "✕ Clear";
+                clicked => {
+                    root.search-query = "";
+                    root.search-changed("");
+                }
+            }
+
+            Button {
+                text: "🔄 Refresh";
+                clicked => {
+                    root.refresh();
+                }
+            }
+        }
+
+        // Summary bar (item count)
+        HorizontalLayout {
+            Text {
+                text: root.summary-text;
+                font-size: 11px;
+                color: #71717a;
+            }
+        }
+
+        // History Items List or Empty Placeholder
+        if root.is-empty: Rectangle {
+            vertical-stretch: 1;
+            border-radius: 8px;
+            background: #18181b40;
+            border-width: 1px;
+            border-color: #27272a;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Text {
+                    text: "No dictations found";
+                    font-size: 14px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    color: #a1a1aa;
+                }
+                Text {
+                    text: root.search-query != "" ? "Try searching for a different keyword." : "Dictations transcribed by OpenWhisper will appear here.";
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    color: #71717a;
+                }
+            }
+        }
+
+        if !root.is-empty: ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                spacing: 8px;
+                padding-right: 6px;
+
+                for item in root.history-items: Rectangle {
+                    background: #1f2228;
+                    border-color: #2e3440;
+                    border-width: 1px;
+                    border-radius: 6px;
+
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 8px;
+
+                        // Metadata header row
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: item.timestamp;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #38bdf8;
+                            }
+                            Text {
+                                text: "•";
+                                font-size: 11px;
+                                color: #52525b;
+                            }
+                            Text {
+                                text: item.meta_info;
+                                font-size: 11px;
+                                color: #94a3b8;
+                                horizontal-stretch: 1;
+                            }
+                        }
+
+                        // Main transcription text
+                        Text {
+                            text: item.text;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+
+                        // Actions row
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle { horizontal-stretch: 1; }
+                            Button {
+                                text: "📋 Copy";
+                                clicked => {
+                                    root.copy-item(item.id);
+                                }
+                            }
+                            Button {
+                                text: "🗑️ Delete";
+                                clicked => {
+                                    root.delete-item(item.id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Status Toast Banner (e.g. "Copied to clipboard!")
+        if root.toast-text != "": Rectangle {
+            height: 32px;
+            background: #064e3b;
+            border-color: #059669;
+            border-width: 1px;
+            border-radius: 4px;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                Text {
+                    text: root.toast-text;
+                    color: #a7f3d0;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Bottom action bar
+        HorizontalLayout {
+            spacing: 8px;
+            Button {
+                text: "🗑️  Clear All History";
+                clicked => {
+                    root.clear-history();
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "Close";
+                primary: true;
+                clicked => {
+                    root.close-window();
+                }
+            }
+        }
+    }
+}

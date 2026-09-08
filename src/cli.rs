@@ -82,6 +82,37 @@ pub enum Commands {
     /// Sniff hardware key events via evdev to inspect scancodes, press/release, and hold duration
     #[command(alias = "test-key", alias = "sniff-keys")]
     TestHotkey,
+
+    /// Persistent transcription history (search, view, copy, delete, or launch GUI)
+    History {
+        /// Number of entries to display
+        #[arg(short, long, default_value_t = 15)]
+        limit: usize,
+
+        /// Search query to filter history entries
+        #[arg(short, long)]
+        search: Option<String>,
+
+        /// Copy entry with the given ID to system clipboard
+        #[arg(long)]
+        copy: Option<i64>,
+
+        /// Delete entry with the given ID
+        #[arg(long)]
+        delete: Option<i64>,
+
+        /// Clear all history entries
+        #[arg(long, default_value_t = false)]
+        clear: bool,
+
+        /// Output results formatted as JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+
+        /// Launch dedicated standalone History graphical window
+        #[arg(long, default_value_t = false)]
+        gui: bool,
+    },
 }
 
 #[cfg(test)]
@@ -139,6 +170,23 @@ mod tests {
         match hud.command {
             Some(Commands::HudDemo { once }) => assert!(once),
             _ => panic!("Expected Commands::HudDemo"),
+        }
+    }
+
+    #[test]
+    fn test_cli_history_arguments() {
+        let hist = Cli::try_parse_from(["openwhisper", "history", "--limit", "25", "--search", "meeting", "--gui"]).unwrap();
+        match hist.command {
+            Some(Commands::History { limit, search, copy, delete, clear, json, gui }) => {
+                assert_eq!(limit, 25);
+                assert_eq!(search, Some("meeting".to_string()));
+                assert!(copy.is_none());
+                assert!(delete.is_none());
+                assert!(!clear);
+                assert!(!json);
+                assert!(gui);
+            }
+            _ => panic!("Expected Commands::History"),
         }
     }
 }

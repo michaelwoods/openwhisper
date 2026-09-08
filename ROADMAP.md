@@ -65,17 +65,18 @@ For lengthy dictation sessions, seeing words appear in real time reduces perceiv
 ---
 
 ## 3. Persistent Transcription History & Search
-
-### Motivation
-Users often dictate thoughts, messages, or code snippets that they need to reference or re-copy later, especially if the target application was not focused or the text was accidentally replaced.
-
-### Architecture & Storage
+- **Status**: **Completed** (v0.1.0)
 - **Persistent Storage**:
-  - Persist all completed dictations to `~/.local/share/openwhisper/history.sqlite3` (or append-only JSONL).
-  - Store metadata: timestamp, raw transcript, formatted transcript, audio duration, endpoint used, and character count.
-- **Access & UI**:
-  - Add a dedicated **History** tab in the Slint Settings window featuring full-text search, copy-to-clipboard buttons, and date filtering.
-  - CLI command: `openwhisper history [--limit N] [--search QUERY]`.
+  - All completed dictations are durable across reboots in `~/.local/share/openwhisper/history.sqlite3` via `rusqlite` (WAL mode enabled).
+  - Stored fields: auto-incrementing ID, ISO timestamp, formatted text, raw text, duration, character count, model name, and output mode.
+- **Dedicated History Window (`ui/history.slint`)**:
+  - Independent, dedicated graphical window launched via CLI (`openwhisper history --gui`) or the KDE Plasma system tray (`"🔍 Browse Full History..."`).
+  - Strict separation of concerns: settings GUI remains completely pure and uncluttered.
+  - Live substring search filtering, relative timestamp formatting, 1-click "📋 Copy" and "🗑️ Delete" buttons, and "Clear All History" capability.
+- **Rich CLI Interface**:
+  - `openwhisper history [--limit N] [--search QUERY] [--copy ID] [--delete ID] [--clear] [--json] [--gui]`.
+  - Nicely formatted terminal table with quick recopying to system clipboard.
+
 
 ---
 

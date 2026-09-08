@@ -159,25 +159,15 @@ When the remote STT server goes down or returns errors (e.g., out-of-memory or m
 
 ## 10. Instant Physical Abort Key (`Escape` to Cancel Recording)
 
-### Motivation
-During dictation, users frequently change their mind, cough, sneeze, or realize they started with the wrong window focused. Reaching for a mouse or typing a terminal cancel command is too slow.
-
-### Planned Features
-- While an audio recording is active (in either Push-To-Talk hold or Toggle hands-free mode), listening for physical `KEY_ESC` via evdev immediately aborts the recording.
-- Plays an acoustic discard sound, hides the HUD overlay immediately, and prevents any API requests or text injection.
+### Status
+- **[Completed]**: Physical `KEY_ESC` monitored via `evdev` (`ev.value() == 1`). If recording is active, it drops the recording immediately, clears the HUD, and emits a descending two-tone cancel chime (`EarconType::Cancel`, 440 Hz -> 260 Hz) without querying the STT model or pasting text.
 
 ---
 
 ## 11. System Tray "Recent Dictations" Quick Re-Copy Menu
 
-### Motivation
-When a dictation is completed but the user accidentally closes the document or wasn't focused on the correct window, re-dictating identical text is frustrating.
-
-### Planned Features
-- Maintain an in-memory ring-buffer of the last 10 completed dictations in the daemon.
-- Expose a submenu in the `ksni` system tray (`StatusNotifierItem`):
-  - Lists the 5 most recent transcriptions (truncated with ellipsis).
-  - Clicking any recent item copies its full text to the system clipboard and displays a desktop notification confirmation.
+### Status
+- **[Completed]**: In-memory ring buffer (`VecDeque<String>`) of the last 10 dictations managed by `TrayController`. Dynamically rendered as a `📋 Recent Dictations` submenu in the KDE Plasma `ksni` system tray. Clicking any item copies the full text to the clipboard and shows a desktop notification.
 
 ---
 

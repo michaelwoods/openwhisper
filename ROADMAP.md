@@ -1,6 +1,32 @@
-# OpenWhisper Future Roadmap & Architecture Specification
+# OpenWhisper Roadmap & Architecture Specification
 
-This document details upcoming improvements, architectural additions, and multi-platform implementations planned for future releases of **OpenWhisper**.
+This document details completed milestones, upcoming enhancements, and long-term architectural plans for **OpenWhisper**.
+
+## Current Status & Reality Matrix
+
+| Feature / Initiative | Roadmap Section | Reality Status | Notes / Capabilities |
+| :--- | :--- | :--- | :--- |
+| **Zero-Disk Audio Pipeline** | Core Architecture | **Completed** | 16kHz mono in-memory capture & Hound WAV encoding |
+| **Dual-Mode Hotkey Engine** | Core Architecture | **Completed** | PTT hold + hands-free toggle tap state machine |
+| **Wayland Text Insertion** | Core Architecture | **Completed** | Native `wl-copy` clipboard + `/dev/uinput` virtual keyboard Ctrl+V |
+| **Slint Floating HUD Overlay** | GUI / HUD | **Completed** | Real-time audio waveform meter with KWin positioning rules |
+| **Procedural Audio Cues** | Audio Feedback | **Completed** | Synthesized start/stop/error chime envelopes (no audio assets) |
+| **Voice Activity Detection** | Audio / VAD | **Completed** | RMS energy-based silence detection with configurable timeout |
+| **Paired Audio/Text Dataset** | Section 5 | **Completed** | Timestamped paired `.wav` and `.txt` dictation recording |
+| **History & Audio Playback** | Section 5 | **Completed** | SQLite sync, audio backfill, cancellable playback engine, GUI & CLI |
+| **Pure Vector System Tray** | Desktop Integration | **Completed** | Breeze-compatible SVG SNI, dynamic palettes, 5 states, 0% blur |
+| **Slint Settings GUI** | Desktop Integration | **Completed** | Multi-tab settings (model, hotkeys, audio, VAD, vocabulary) |
+| **Sinc-Based Resampling (`rubato`)** | Section 2.A | **Next Candidate** | Fix linear interpolation anti-aliasing artifacts |
+| **Lock-Free Audio Ring Buffer** | Section 2.B | **Next Candidate** | Eliminate `Mutex` in real-time `cpal` callback to prevent dropouts |
+| **Robust IPC Message Framing** | Section 2.C | **Next Candidate** | Replace fixed 512-byte buffer with newline-delimited stream |
+| **Integration Tests & CI Pipeline** | Section 3 | **Next Candidate** | Mock STT (`wiremock`), `tests/` suite, and GitHub Actions CI |
+| **System Diagnostics (`doctor`)** | Section 6 | **Next Candidate** | Automated pre-flight health check CLI tool |
+| **Spoken Punctuation Macros** | Section 7 | **Next Candidate** | Voice macros ("new line" $\to$ `\n`, "period" $\to$ `.`) |
+| **Custom Text Expansion** | Section 8 | **Planned** | Voice snippet expansion table in Settings |
+| **Context-Aware App Profiles** | Section 9 | **Planned** | Active window detection via KWin D-Bus for smart formatting |
+| **LLM Post-Processing Styles** | Section 10 | **Planned** | Filler word stripping, email polishing via local LLM |
+| **Multi-Platform Backends** | Section 1 | **Planned** | macOS (`CGEvent`), Windows (`SendInput`), iOS (`openwhisper-core`) |
+| **Streaming / Live Dictation** | Section 4 | **Under Research** | Chunked WebSocket/gRPC streaming with delete-replace buffer |
 
 ---
 
@@ -105,6 +131,7 @@ High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2)
 
 ### Status & Planned Enhancements
 - **[Completed] Paired Audio & Transcript Recording**: Configurable `save_audio_dir` setting (via GUI or `config.toml`) automatically saves paired timestamped `.wav` (16kHz mono) and `.txt` transcripts for every dictation.
+- **[Completed] History & Disk Audio Sync with Native Playback**: SQLite history database stores `audio_path`, automatically backfills existing recordings on disk, and provides responsive Play/Stop audio playback with cancellable audio streams in both the Slint History GUI (`openwhisper history --gui`) and CLI (`openwhisper history --play <ID>`).
 - **[Planned] Dataset Exporter & Manifest Tool**: Built-in CLI tool (`openwhisper export-tts-dataset`) to scan the recordings directory, validate audio lengths, filter out silences/noise, and package standard metadata manifests (`metadata.csv` / LJSpeech format) directly usable by Piper, XTTS, and F5-TTS training scripts.
 
 ---

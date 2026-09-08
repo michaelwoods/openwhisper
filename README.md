@@ -8,15 +8,20 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
 
 ## Shipped Features & Capabilities
 
+- 🩺 **Pre-Flight System Diagnostics (`openwhisper doctor`)**:
+  - Automated health check inspecting 6 critical subsystems: configuration validity, microphone audio hardware & ambient RMS level, STT inference backend latency, `/dev/uinput` permissions for emulated typing, IPC daemon responsiveness, and desktop assets/rules.
+  - Generates human-readable terminal reports with actionable remediation instructions or machine-readable JSON (`openwhisper doctor --json`).
+- 🗄️ **Persistent Transcription History, Search & Native Audio Playback**:
+  - All completed dictations are durably stored in `~/.local/share/openwhisper/history.sqlite3` using SQLite with WAL mode.
+  - **Dedicated History GUI (`openwhisper history --gui`)**: Standalone Slint window with live substring search filtering, timestamp display, 1-click "Copy" and "Delete" buttons, and a safe "Clear All History" confirmation dialog that preserves audio files on disk.
+  - **Integrated Audio Playback**: Plays recorded dictation audio directly from the GUI with responsive `▶ Play` / `⏹ Stop` toggling, or via CLI (`openwhisper history --play <ID>`).
+  - **Automatic Audio Backfill**: Automatically associates existing timestamped `.wav` files with database records based on transcript text and chronological order.
+  - **Rich CLI Subcommand (`openwhisper history`)**: List, search (`--search`), re-copy (`--copy <ID>`), prune (`--delete <ID>`), play (`--play <ID>`), or export JSON (`--json`) directly from your terminal.
 - ⚡ **Dual-Mode Hotkey State Machine**:
   - **Push-To-Talk (PTT)**: Press and hold key to speak, release to immediately transcribe and paste.
   - **Hands-Free Toggle Mode**: Brief tap to start recording hands-free, tap again to finish and paste.
   - Seamlessly unified state machine with configurable threshold (`ptt_threshold_ms`, default: `350ms`).
   - **Physical Abort Key**: Tap physical `Escape` (`KEY_ESC`) at any time to instantly discard the recording with a descending cancel earcon without querying STT or modifying the clipboard.
-- 🗄️ **Persistent Transcription History & Search**:
-  - All completed dictations are durably stored in `~/.local/share/openwhisper/history.sqlite3` using SQLite with WAL mode.
-  - **Dedicated History GUI (`openwhisper history --gui`)**: Standalone window with live substring search filtering, timestamp display, 1-click "📋 Copy" and "🗑️ Delete" buttons, and "Clear All History".
-  - **Rich CLI Subcommand (`openwhisper history`)**: List, search (`--search`), re-copy (`--copy <ID>`), prune (`--delete <ID>`), or export JSON (`--json`) directly from your terminal.
 - 🖥️ **Minimal Floating Status Overlay (HUD)**:
   - Frameless, translucent always-on-top pill widget rendered via `eframe` (Wayland + Glow).
   - Non-focus-stealing (`with_active(false)`) to maintain uninterrupted keyboard focus in your active application.
@@ -25,8 +30,9 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - **State Transitions**: Instant visual feedback for Recording (pulsing red dot), Transcribing (cyan acoustic orbit), Done (green checkmark and text snippet), and Error.
   - **Smooth Auto-Hide**: Automatically fades out smoothly when dictation completes.
   - Interactive standalone demo available via `openwhisper hud-demo`.
-- 🖥️ **StatusNotifierItem System Tray & Health Diagnostics**:
+- 🖥️ **StatusNotifierItem System Tray & Pure Vector Rendering**:
   - Native KDE Plasma / Wayland D-Bus system tray item via `ksni`.
+  - **Pure Vector Rendering**: Breeze-compatible SVG icons resolved directly at native panel resolution (zero raster scaling blur).
   - Dynamic state icons: Idle (slate mic), Recording (pulsing red indicator), Transcribing (cyan acoustic orbit), Degraded (amber fallback/network indicator), and Error (red alert).
   - **Granular Hover Tooltip**: Displays daemon status, STT endpoint URL, active microphone device (with fallback badge), last transcription duration, and last error.
   - **Recent Dictations Submenu**: Quick access to re-copy any of the last 10 dictations directly to clipboard from the tray menu.
@@ -38,6 +44,11 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - **Floating HUD Settings**: Toggle HUD overlay, select screen position (`BottomCenter`, `TopCenter`, etc.), and launch live HUD preview.
   - **Formatting & Vocabulary Manager**: Configure casing modes and add/remove custom bias words.
   - **In-Memory IPC Reload**: Clicking "Save & Apply" persists `config.toml` and instantly reloads the running background daemon via IPC without dropping audio streams.
+- 🚀 **Zero-Disk Pipeline with Sinc Resampling & Lock-Free Audio Buffer**:
+  - **Hard Real-Time Capture**: Real-time audio capture callback uses a lock-free Single-Producer Single-Consumer (SPSC) ring buffer (`ringbuf`), eliminating mutex contention and preventing audio dropouts.
+  - **High-Fidelity Bandlimited Resampling**: High-quality sinc resampling via `rubato` with a `BlackmanHarris2` anti-aliasing filter (attenuates frequencies above the 8kHz Nyquist limit by $>28\text{ dB}$), preserving maximum Whisper acoustic precision.
+  - **Zero-Disk Audio Pipeline**: Audio encoded to WAV entirely in RAM via `hound` inside a `Cursor<Vec<u8>>` for sub-100ms pipeline latency and absolute user privacy.
+  - **Paired Audio/Text Dataset Collection**: Optional `save_audio_dir` setting saves timestamped paired `.wav` and `.txt` transcripts for training local TTS/STT voice models.
 - 🎙️ **Audio Hardware Resilience & Auto-Reconnection**:
   - Automatic graceful fallback to system default input device if a configured custom microphone is disconnected or missing.
   - Real-time stream error tracking via `cpal` callbacks.
@@ -61,10 +72,11 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - Virtual keyboard keystroke typing via `/dev/uinput` with shift modifier management and 2ms cadence.
   - Fallback clipboard insertion (`wl-copy` with `arboard` fallback) with synthetic `Ctrl+V` keypress.
   - Pure-Rust system PATH resolution (`std::env::split_paths`) with zero external subprocess overhead.
-- 🚀 **Local Inference & Zero-Disk Audio Pipeline**:
-  - Audio captured via `cpal`, resampled in-memory to 16kHz mono 16-bit PCM, and packaged into WAV via `hound` inside a `Cursor<Vec<u8>>`.
-  - Zero disk writes to `/tmp` for maximum throughput (<100ms latency overhead) and absolute user privacy.
-  - Optional paired audio & transcript logging to designated directory for dataset collection.
+- 🔌 **Stream-Framed Unix Domain Socket IPC**:
+  - Newline-delimited JSON streaming protocol parsed with buffered async readers, eliminating packet truncation and socket fragmentation.
+- 🧪 **Test Infrastructure & Continuous Integration**:
+  - 110 automated tests covering unit functions, CLI commands (`assert_cmd`), and end-to-end Whisper transcription flows with mock servers (`wiremock`).
+  - Unified CI workflow compatible with both GitHub Actions and local Forgejo Actions runners.
 - 🛠️ **Automated Setup Phase**:
   - One-command setup via `openwhisper setup`, `make install`, or `scripts/install.sh`.
   - Automates binary installation, Freedesktop icon theme deployment, `.desktop` menu registration, and user systemd service management.
@@ -258,6 +270,7 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 | `openwhisper record` | | Standalone one-shot recording (press Enter to finish) |
 | `openwhisper test-ovms` | | Tests connectivity and latency to STT endpoint |
 | `openwhisper test-hotkey` | `test-key`, `sniff-keys` | Real-time evdev hardware key sniffer (inspect scancodes & hold times) |
+| `openwhisper doctor` | `check-system`, `diag` | Runs pre-flight system diagnostics & health checks (use `--json` for machine output) |
 | `openwhisper setup` | | Automated setup: installs binary, icons, desktop files, and systemd |
 | `openwhisper list-devices`| | Lists available microphone audio devices |
 | `openwhisper init-config`| | Initializes default `~/.config/openwhisper/config.toml` |

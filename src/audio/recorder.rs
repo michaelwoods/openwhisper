@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, Stream};
 use hound::{SampleFormat as WavSampleFormat, WavSpec, WavWriter};
-use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use ringbuf::HeapRb;
+use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,10 @@ pub struct ActiveRecording {
     started_at: Instant,
     drain_handle: Option<std::thread::JoinHandle<()>>,
 }
+
+// cpal::Stream is not marked Send on ALSA Linux, but the handle is safe to move across Tokio worker threads.
+unsafe impl Send for ActiveRecording {}
+unsafe impl Sync for ActiveRecording {}
 
 impl AudioRecorder {
     pub fn new(device_name: Option<String>) -> Self {
@@ -63,22 +67,25 @@ impl AudioRecorder {
                 .input_devices()
                 .context("Failed to enumerate audio devices")?;
             for dev in devices {
-                if let Ok(name) = dev.name() {
-                    if name.to_lowercase().contains(&desired_name.to_lowercase()) {
-                        tracing::info!("Using matched primary audio input device: {}", name);
-                        return Ok((dev, false, name));
-                    }
+                if let Ok(name) = dev.name()
+                    && name.to_lowercase().contains(&desired_name.to_lowercase())
+                {
+                    tracing::info!("Using matched primary audio input device: {}", name);
+                    return Ok((dev, false, name));
                 }
             }
             tracing::warn!(
                 "Preferred audio device containing {:?} not found or disconnected. Falling back to system default input device.",
                 desired_name
             );
-            let default_dev = host
-                .default_input_device()
-                .context("Preferred device not found and no system default audio input device is available")?;
+            let default_dev = host.default_input_device().context(
+                "Preferred device not found and no system default audio input device is available",
+            )?;
             let fallback_name = default_dev.name().unwrap_or_else(|_| "Default".to_string());
-            tracing::info!("Audio resilience: actively using fallback device: {}", fallback_name);
+            tracing::info!(
+                "Audio resilience: actively using fallback device: {}",
+                fallback_name
+            );
             return Ok((default_dev, true, fallback_name));
         }
 
@@ -91,7 +98,11 @@ impl AudioRecorder {
 
     pub fn start_recording(&self) -> Result<ActiveRecording> {
         let (device, is_fallback, dev_name) = self.select_device()?;
-        tracing::info!("Opening audio input stream on: {} (fallback: {})", dev_name, is_fallback);
+        tracing::info!(
+            "Opening audio input stream on: {} (fallback: {})",
+            dev_name,
+            is_fallback
+        );
 
         let default_config = device
             .default_input_config()
@@ -110,7 +121,9 @@ impl AudioRecorder {
         let rb = HeapRb::<f32>::new((sample_rate as usize * 4).max(8192));
         let (mut prod, mut cons) = rb.split();
 
-        let samples = Arc::new(Mutex::new(Vec::<f32>::with_capacity(sample_rate as usize * 4)));
+        let samples = Arc::new(Mutex::new(Vec::<f32>::with_capacity(
+            sample_rate as usize * 4,
+        )));
         let is_recording = Arc::new(AtomicBool::new(true));
         let stream_error = Arc::new(AtomicBool::new(false));
 
@@ -119,47 +132,45 @@ impl AudioRecorder {
         let dev_err_name = dev_name.clone();
 
         let err_fn = move |err: cpal::StreamError| {
-            tracing::error!("Audio capture stream error on device '{}': {:?}", dev_err_name, err);
+            tracing::error!(
+                "Audio capture stream error on device '{}': {:?}",
+                dev_err_name,
+                err
+            );
             stream_err_cb.store(true, Ordering::Relaxed);
         };
 
         let stream = match sample_format {
-            SampleFormat::F32 => {
-                device.build_input_stream(
-                    &default_config.into(),
-                    move |data: &[f32], _: &_| {
-                        if is_recording_cb.load(Ordering::Relaxed) {
-                            prod.push_slice(data);
-                        }
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::I16 => {
-                device.build_input_stream(
-                    &default_config.into(),
-                    move |data: &[i16], _: &_| {
-                        if is_recording_cb.load(Ordering::Relaxed) {
-                            prod.push_iter(data.iter().map(|&s| s as f32 / 32768.0));
-                        }
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::U16 => {
-                device.build_input_stream(
-                    &default_config.into(),
-                    move |data: &[u16], _: &_| {
-                        if is_recording_cb.load(Ordering::Relaxed) {
-                            prod.push_iter(data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
-                        }
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
+            SampleFormat::F32 => device.build_input_stream(
+                &default_config.into(),
+                move |data: &[f32], _: &_| {
+                    if is_recording_cb.load(Ordering::Relaxed) {
+                        prod.push_slice(data);
+                    }
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::I16 => device.build_input_stream(
+                &default_config.into(),
+                move |data: &[i16], _: &_| {
+                    if is_recording_cb.load(Ordering::Relaxed) {
+                        prod.push_iter(data.iter().map(|&s| s as f32 / 32768.0));
+                    }
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::U16 => device.build_input_stream(
+                &default_config.into(),
+                move |data: &[u16], _: &_| {
+                    if is_recording_cb.load(Ordering::Relaxed) {
+                        prod.push_iter(data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
+                    }
+                },
+                err_fn,
+                None,
+            )?,
             _ => bail!("Unsupported sample format: {:?}", sample_format),
         };
 
@@ -198,7 +209,6 @@ impl AudioRecorder {
         })
     }
 
-
     /// Tests microphone input levels for `duration`, invoking `on_level(normalized_rms, is_clipping)`
     /// every ~50ms. Returns the peak level reached.
     pub fn test_input_levels<F>(
@@ -217,10 +227,10 @@ impl AudioRecorder {
         let mut peak_level = 0.0f32;
 
         while start_time.elapsed() < duration {
-            if let Some(ref cancel) = cancel_signal {
-                if cancel.load(Ordering::Relaxed) {
-                    break;
-                }
+            if let Some(ref cancel) = cancel_signal
+                && cancel.load(Ordering::Relaxed)
+            {
+                break;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
             let (new_samples, new_idx) = active.copy_samples_from(last_read_idx);
@@ -275,7 +285,6 @@ impl ActiveRecording {
         self.stream_error.load(Ordering::Relaxed)
     }
 
-
     /// Copies samples recorded after index `start` and returns the new samples and current total sample length.
     #[allow(dead_code)]
     pub fn copy_samples_from(&self, start: usize) -> (Vec<f32>, usize) {
@@ -312,7 +321,8 @@ impl ActiveRecording {
             std::mem::take(&mut *guard)
         };
 
-        let duration_secs = raw_samples.len() as f32 / (self.channels as f32 * self.sample_rate as f32);
+        let duration_secs =
+            raw_samples.len() as f32 / (self.channels as f32 * self.sample_rate as f32);
         tracing::info!(
             "Captured {:.2}s of audio ({} raw samples)",
             duration_secs,
@@ -354,8 +364,8 @@ impl ActiveRecording {
 
         let mut buffer = Cursor::new(Vec::new());
         {
-            let mut writer = WavWriter::new(&mut buffer, spec)
-                .context("Failed to initialize WAV writer")?;
+            let mut writer =
+                WavWriter::new(&mut buffer, spec).context("Failed to initialize WAV writer")?;
             for sample in pcm_16k {
                 writer.write_sample(sample)?;
             }
@@ -381,12 +391,20 @@ impl Drop for ActiveRecording {
 /// Saves recorded WAV audio and its corresponding transcript to a designated directory
 /// for dataset creation or custom TTS voice model training.
 /// Returns the path to the written WAV audio file.
-pub fn save_recording_to_dir(dir: &std::path::Path, wav_bytes: &[u8], transcript: &str) -> Result<std::path::PathBuf> {
+pub fn save_recording_to_dir(
+    dir: &std::path::Path,
+    wav_bytes: &[u8],
+    transcript: &str,
+) -> Result<std::path::PathBuf> {
     std::fs::create_dir_all(dir)
         .with_context(|| format!("Failed to create audio export directory at {:?}", dir))?;
 
     let now: chrono::DateTime<chrono::Local> = std::time::SystemTime::now().into();
-    let filename_base = format!("whisper_{}_{:03}", now.format("%Y%m%d_%H%M%S"), now.timestamp_subsec_millis());
+    let filename_base = format!(
+        "whisper_{}_{:03}",
+        now.format("%Y%m%d_%H%M%S"),
+        now.timestamp_subsec_millis()
+    );
     let wav_path = dir.join(format!("{}.wav", filename_base));
     let txt_path = dir.join(format!("{}.txt", filename_base));
 
@@ -414,7 +432,8 @@ mod tests {
 
     #[test]
     fn test_save_recording_to_dir() {
-        let tmp_dir = std::env::temp_dir().join(format!("openwhisper_test_save_{}", std::process::id()));
+        let tmp_dir =
+            std::env::temp_dir().join(format!("openwhisper_test_save_{}", std::process::id()));
         let wav_data = b"RIFFFAKEWAVDATA";
         let transcript = "Hello world transcription";
 
@@ -430,8 +449,14 @@ mod tests {
             .collect();
         assert_eq!(entries.len(), 2);
 
-        let wav_file = entries.iter().find(|p| p.extension().map_or(false, |ext| ext == "wav")).unwrap();
-        let txt_file = entries.iter().find(|p| p.extension().map_or(false, |ext| ext == "txt")).unwrap();
+        let wav_file = entries
+            .iter()
+            .find(|p| p.extension().is_some_and(|ext| ext == "wav"))
+            .unwrap();
+        let txt_file = entries
+            .iter()
+            .find(|p| p.extension().is_some_and(|ext| ext == "txt"))
+            .unwrap();
 
         assert_eq!(std::fs::read(wav_file).unwrap(), wav_data);
         assert_eq!(std::fs::read_to_string(txt_file).unwrap(), transcript);
@@ -452,7 +477,7 @@ mod tests {
         );
         // Either Ok(0.0) if device present or Err if headless
         if let Ok(peak) = res {
-            assert!(peak >= 0.0 && peak <= 1.0);
+            assert!((0.0..=1.0).contains(&peak));
         }
     }
 

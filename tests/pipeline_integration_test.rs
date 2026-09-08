@@ -20,7 +20,9 @@ fn generate_synthetic_wav(duration_secs: f32) -> Vec<u8> {
         let mut writer = WavWriter::new(&mut cursor, spec).expect("create wav writer");
         let num_samples = (16000.0 * duration_secs) as usize;
         for i in 0..num_samples {
-            let sample = (16000.0 * (2.0 * std::f32::consts::PI * 440.0 * (i as f32) / 16000.0).sin()) as i16;
+            let sample = (16000.0
+                * (2.0 * std::f32::consts::PI * 440.0 * (i as f32) / 16000.0).sin())
+                as i16;
             writer.write_sample(sample).expect("write sample");
         }
         writer.finalize().expect("finalize wav");
@@ -40,14 +42,20 @@ async fn test_transcription_pipeline_success() {
         .mount(&mock_server)
         .await;
 
-    let mut config = Config::default();
-    config.server_url = format!("{}/v1/audio/transcriptions", mock_server.uri());
+    let config = Config {
+        server_url: format!("{}/v1/audio/transcriptions", mock_server.uri()),
+        ..Default::default()
+    };
 
     let client = TranscriptionClient::new(&config);
     let wav_bytes = generate_synthetic_wav(0.5);
 
     let result = client.transcribe(wav_bytes).await;
-    assert!(result.is_ok(), "Transcription should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Transcription should succeed: {:?}",
+        result.err()
+    );
     let text = result.unwrap();
     assert_eq!(text.trim(), "Hello from OpenWhisper integration test.");
 }
@@ -65,16 +73,21 @@ async fn test_transcription_pipeline_with_api_key() {
         .mount(&mock_server)
         .await;
 
-    let mut config = Config::default();
-    config.server_url = format!("{}/v1/audio/transcriptions", mock_server.uri());
-    config.api_key = Some("secret-test-token-123".to_string());
+    let config = Config {
+        server_url: format!("{}/v1/audio/transcriptions", mock_server.uri()),
+        api_key: Some("secret-test-token-123".to_string()),
+        ..Default::default()
+    };
 
     let client = TranscriptionClient::new(&config);
     let wav_bytes = generate_synthetic_wav(0.5);
 
     let result = client.transcribe(wav_bytes).await;
     assert!(result.is_ok(), "Authenticated transcription should succeed");
-    assert_eq!(result.unwrap().trim(), "Authenticated transcription successful.");
+    assert_eq!(
+        result.unwrap().trim(),
+        "Authenticated transcription successful."
+    );
 }
 
 #[tokio::test]
@@ -88,8 +101,10 @@ async fn test_transcription_pipeline_server_error_handling() {
         .mount(&mock_server)
         .await;
 
-    let mut config = Config::default();
-    config.server_url = format!("{}/v1/audio/transcriptions", mock_server.uri());
+    let config = Config {
+        server_url: format!("{}/v1/audio/transcriptions", mock_server.uri()),
+        ..Default::default()
+    };
 
     let client = TranscriptionClient::new(&config);
     let wav_bytes = generate_synthetic_wav(0.5);
@@ -106,7 +121,10 @@ async fn test_transcription_pipeline_empty_audio_rejected() {
     let client = TranscriptionClient::new(&config);
 
     let result = client.transcribe(Vec::new()).await;
-    assert!(result.is_err(), "Empty audio buffer must fail before sending network request");
+    assert!(
+        result.is_err(),
+        "Empty audio buffer must fail before sending network request"
+    );
     let err_msg = format!("{}", result.unwrap_err());
     assert!(err_msg.contains("empty"));
 }
@@ -153,9 +171,17 @@ fn test_history_persistence_and_audio_save_integration() {
     assert_eq!(search_res[0].id, Some(id));
 
     // 3. Run backfill to link the saved WAV audio file
-    let linked_count = history_mgr.backfill_audio_paths(temp_path).expect("backfill");
+    let linked_count = history_mgr
+        .backfill_audio_paths(temp_path)
+        .expect("backfill");
     assert_eq!(linked_count, 1);
 
-    let updated_entry = history_mgr.get_by_id(id).expect("get").expect("entry exists");
-    assert_eq!(updated_entry.audio_path, Some(saved_wav.to_string_lossy().to_string()));
+    let updated_entry = history_mgr
+        .get_by_id(id)
+        .expect("get")
+        .expect("entry exists");
+    assert_eq!(
+        updated_entry.audio_path,
+        Some(saved_wav.to_string_lossy().to_string())
+    );
 }

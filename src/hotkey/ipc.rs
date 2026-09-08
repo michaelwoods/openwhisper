@@ -129,9 +129,12 @@ pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
 }
 
 pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
-    let stream = UnixStream::connect(socket_path)
-        .await
-        .with_context(|| format!("OpenWhisper daemon is not running (cannot connect to {})", socket_path))?;
+    let stream = UnixStream::connect(socket_path).await.with_context(|| {
+        format!(
+            "OpenWhisper daemon is not running (cannot connect to {})",
+            socket_path
+        )
+    })?;
 
     let (reader, mut writer) = stream.into_split();
     let mut payload = serde_json::to_vec(&cmd)?;
@@ -140,10 +143,12 @@ pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcR
 
     let mut buf_reader = tokio::io::BufReader::new(reader);
     let mut line = String::new();
-    buf_reader.read_line(&mut line).await
+    buf_reader
+        .read_line(&mut line)
+        .await
         .context("Failed to read response line from OpenWhisper daemon")?;
-    let response: IpcResponse = serde_json::from_str(line.trim())
-        .context("Invalid response from OpenWhisper daemon")?;
+    let response: IpcResponse =
+        serde_json::from_str(line.trim()).context("Invalid response from OpenWhisper daemon")?;
     Ok(response)
 }
 
@@ -154,8 +159,12 @@ pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcRe
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
-    let mut stream = UnixStream::connect(socket_path)
-        .with_context(|| format!("OpenWhisper daemon is not running (cannot connect to {})", socket_path))?;
+    let mut stream = UnixStream::connect(socket_path).with_context(|| {
+        format!(
+            "OpenWhisper daemon is not running (cannot connect to {})",
+            socket_path
+        )
+    })?;
 
     let mut payload = serde_json::to_vec(&cmd)?;
     payload.push(b'\n');
@@ -163,10 +172,11 @@ pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcRe
 
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
-    reader.read_line(&mut line)
+    reader
+        .read_line(&mut line)
         .context("Failed to read response line from OpenWhisper daemon")?;
-    let response: IpcResponse = serde_json::from_str(line.trim())
-        .context("Invalid response from OpenWhisper daemon")?;
+    let response: IpcResponse =
+        serde_json::from_str(line.trim()).context("Invalid response from OpenWhisper daemon")?;
     Ok(response)
 }
 
@@ -181,29 +191,86 @@ mod tests {
 
     #[test]
     fn test_parse_ipc_command_json() {
-        assert!(matches!(parse_ipc_command(r#""toggle""#), Some(IpcCommand::Toggle)));
-        assert!(matches!(parse_ipc_command(r#""ptt_down""#), Some(IpcCommand::PttDown)));
-        assert!(matches!(parse_ipc_command(r#""ptt_up""#), Some(IpcCommand::PttUp)));
-        assert!(matches!(parse_ipc_command(r#""cancel""#), Some(IpcCommand::Cancel)));
-        assert!(matches!(parse_ipc_command(r#""status""#), Some(IpcCommand::Status)));
-        assert!(matches!(parse_ipc_command(r#""reload_config""#), Some(IpcCommand::ReloadConfig)));
-        assert!(matches!(parse_ipc_command(r#"{"command":"preview_hud"}"#), Some(IpcCommand::PreviewHud)));
-        assert!(matches!(parse_ipc_command(r#"{"action":"toggle"}"#), Some(IpcCommand::Toggle)));
+        assert!(matches!(
+            parse_ipc_command(r#""toggle""#),
+            Some(IpcCommand::Toggle)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#""ptt_down""#),
+            Some(IpcCommand::PttDown)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#""ptt_up""#),
+            Some(IpcCommand::PttUp)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#""cancel""#),
+            Some(IpcCommand::Cancel)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#""status""#),
+            Some(IpcCommand::Status)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#""reload_config""#),
+            Some(IpcCommand::ReloadConfig)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#"{"command":"preview_hud"}"#),
+            Some(IpcCommand::PreviewHud)
+        ));
+        assert!(matches!(
+            parse_ipc_command(r#"{"action":"toggle"}"#),
+            Some(IpcCommand::Toggle)
+        ));
     }
 
     #[test]
     fn test_parse_ipc_command_aliases() {
-        assert!(matches!(parse_ipc_command("toggle"), Some(IpcCommand::Toggle)));
-        assert!(matches!(parse_ipc_command("ptt-down"), Some(IpcCommand::PttDown)));
-        assert!(matches!(parse_ipc_command("press"), Some(IpcCommand::PttDown)));
-        assert!(matches!(parse_ipc_command("ptt-up"), Some(IpcCommand::PttUp)));
-        assert!(matches!(parse_ipc_command("release"), Some(IpcCommand::PttUp)));
-        assert!(matches!(parse_ipc_command("cancel"), Some(IpcCommand::Cancel)));
-        assert!(matches!(parse_ipc_command("status"), Some(IpcCommand::Status)));
-        assert!(matches!(parse_ipc_command("reload-config"), Some(IpcCommand::ReloadConfig)));
-        assert!(matches!(parse_ipc_command("reload_config"), Some(IpcCommand::ReloadConfig)));
-        assert!(matches!(parse_ipc_command("preview-hud"), Some(IpcCommand::PreviewHud)));
-        assert!(matches!(parse_ipc_command("preview"), Some(IpcCommand::PreviewHud)));
+        assert!(matches!(
+            parse_ipc_command("toggle"),
+            Some(IpcCommand::Toggle)
+        ));
+        assert!(matches!(
+            parse_ipc_command("ptt-down"),
+            Some(IpcCommand::PttDown)
+        ));
+        assert!(matches!(
+            parse_ipc_command("press"),
+            Some(IpcCommand::PttDown)
+        ));
+        assert!(matches!(
+            parse_ipc_command("ptt-up"),
+            Some(IpcCommand::PttUp)
+        ));
+        assert!(matches!(
+            parse_ipc_command("release"),
+            Some(IpcCommand::PttUp)
+        ));
+        assert!(matches!(
+            parse_ipc_command("cancel"),
+            Some(IpcCommand::Cancel)
+        ));
+        assert!(matches!(
+            parse_ipc_command("status"),
+            Some(IpcCommand::Status)
+        ));
+        assert!(matches!(
+            parse_ipc_command("reload-config"),
+            Some(IpcCommand::ReloadConfig)
+        ));
+        assert!(matches!(
+            parse_ipc_command("reload_config"),
+            Some(IpcCommand::ReloadConfig)
+        ));
+        assert!(matches!(
+            parse_ipc_command("preview-hud"),
+            Some(IpcCommand::PreviewHud)
+        ));
+        assert!(matches!(
+            parse_ipc_command("preview"),
+            Some(IpcCommand::PreviewHud)
+        ));
         assert!(parse_ipc_command("invalid_xyz").is_none());
     }
 
@@ -231,11 +298,11 @@ mod tests {
         // Wait briefly for server to bind
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        tokio::spawn(async move {
-            while let Some(_cmd) = rx.recv().await {}
-        });
+        tokio::spawn(async move { while let Some(_cmd) = rx.recv().await {} });
 
-        let resp = send_ipc_command(&sock_str, IpcCommand::Toggle).await.unwrap();
+        let resp = send_ipc_command(&sock_str, IpcCommand::Toggle)
+            .await
+            .unwrap();
         assert_eq!(resp.status, "ok");
 
         #[cfg(target_os = "linux")]
@@ -243,7 +310,10 @@ mod tests {
             let sock_str_clone = sock_str.clone();
             let resp_sync = tokio::task::spawn_blocking(move || {
                 send_ipc_command_sync(&sock_str_clone, IpcCommand::Status)
-            }).await.unwrap().unwrap();
+            })
+            .await
+            .unwrap()
+            .unwrap();
             assert_eq!(resp_sync.status, "ok");
         }
 

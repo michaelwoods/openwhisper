@@ -11,7 +11,6 @@ use openwhisper::setup;
 use openwhisper::transcribe;
 use openwhisper::tray;
 
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -22,11 +21,13 @@ use output::OutputManager;
 use std::io::{self, Cursor};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use audio::{AudioRecorder, EarconType, VadDecision, VadDetector};
-use hotkey::{send_ipc_command, Action, HotkeyEngine, IpcCommand, IpcServer, PortalShortcutListener};
+use hotkey::{
+    Action, HotkeyEngine, IpcCommand, IpcServer, PortalShortcutListener, send_ipc_command,
+};
 use transcribe::TranscriptionClient;
 
 #[tokio::main]
@@ -51,7 +52,10 @@ async fn main() -> Result<()> {
                 config.save()?;
                 println!("Default configuration written to: {}", path.display());
             }
-            println!("\nConfiguration contents:\n{}", toml::to_string_pretty(&config)?);
+            println!(
+                "\nConfiguration contents:\n{}",
+                toml::to_string_pretty(&config)?
+            );
             Ok(())
         }
 
@@ -91,7 +95,9 @@ async fn main() -> Result<()> {
             {
                 let mut writer = WavWriter::new(&mut buf, spec)?;
                 for i in 0..16000 {
-                    let sample = (0.1 * (i as f32 * 440.0 * 2.0 * std::f32::consts::PI / 16000.0).sin() * 32767.0) as i16;
+                    let sample = (0.1
+                        * (i as f32 * 440.0 * 2.0 * std::f32::consts::PI / 16000.0).sin()
+                        * 32767.0) as i16;
                     writer.write_sample(sample)?;
                 }
                 writer.finalize()?;
@@ -102,7 +108,10 @@ async fn main() -> Result<()> {
             let start = Instant::now();
             match client.transcribe(wav_bytes).await {
                 Ok(text) => {
-                    println!("SUCCESS! Server responded in {:.2}s", start.elapsed().as_secs_f32());
+                    println!(
+                        "SUCCESS! Server responded in {:.2}s",
+                        start.elapsed().as_secs_f32()
+                    );
                     println!("Transcribed text: {:?}", text);
                 }
                 Err(err) => {
@@ -205,7 +214,10 @@ async fn main() -> Result<()> {
                             eprintln!("Error: Audio file not found at {}", path_str);
                         }
                     } else {
-                        eprintln!("Error: No audio recording associated with history entry #{}", id);
+                        eprintln!(
+                            "Error: No audio recording associated with history entry #{}",
+                            id
+                        );
                     }
                 } else {
                     eprintln!("Error: No history entry found with ID #{}", id);
@@ -235,9 +247,14 @@ async fn main() -> Result<()> {
             if clear {
                 mgr.clear_all()?;
                 if let Some(ref dir) = config.save_audio_dir {
-                    println!("All transcription history cleared. (Note: Saved audio recordings in '{}' were not deleted.)", dir);
+                    println!(
+                        "All transcription history cleared. (Note: Saved audio recordings in '{}' were not deleted.)",
+                        dir
+                    );
                 } else {
-                    println!("All transcription history cleared. (Note: Saved audio recordings on disk were not deleted.)");
+                    println!(
+                        "All transcription history cleared. (Note: Saved audio recordings on disk were not deleted.)"
+                    );
                 }
                 return Ok(());
             }
@@ -257,16 +274,21 @@ async fn main() -> Result<()> {
                 if let Some(ref q) = search {
                     println!("No transcriptions found matching query: {:?}", q);
                 } else {
-                    println!("No transcription history found. Run dictations with OpenWhisper to populate history.");
+                    println!(
+                        "No transcription history found. Run dictations with OpenWhisper to populate history."
+                    );
                 }
                 return Ok(());
             }
 
             let total_in_db = mgr.count()?;
             println!("\n  ID  | Time (Local)        | Dur   | Chars | Audio | Transcription");
-            println!("------+---------------------+-------+-------+-------+--------------------------------------------------");
+            println!(
+                "------+---------------------+-------+-------+-------+--------------------------------------------------"
+            );
             for e in &entries {
-                let local_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&e.timestamp) {
+                let local_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&e.timestamp)
+                {
                     let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(dt);
                     local.format("%Y-%m-%d %H:%M:%S").to_string()
                 } else {
@@ -300,7 +322,9 @@ async fn main() -> Result<()> {
                     display_text
                 );
             }
-            println!("------+---------------------+-------+-------+-------+--------------------------------------------------");
+            println!(
+                "------+---------------------+-------+-------+-------+--------------------------------------------------"
+            );
             println!(
                 "Showing {} of {} entries in database. Use `openwhisper history --gui` for GUI, `--play <ID>` to play, or `--copy <ID>` to copy.\n",
                 entries.len(),
@@ -322,10 +346,13 @@ async fn main() -> Result<()> {
             run_daemon(active_config).await
         }
     }
-
 }
 
-async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_paste: bool) -> Result<()> {
+async fn run_standalone_record(
+    config: Config,
+    duration_secs: Option<u64>,
+    no_paste: bool,
+) -> Result<()> {
     let recorder = AudioRecorder::new(config.audio_device.clone());
     let client = TranscriptionClient::new(&config);
     let mut output_mgr = OutputManager::new(&config);
@@ -358,7 +385,8 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
     println!("--------------------------------------------------");
 
     let audio_path = if let Some(ref dir_str) = config.save_audio_dir {
-        match crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text) {
+        match crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text)
+        {
             Ok(p) => Some(p.to_string_lossy().to_string()),
             Err(e) => {
                 tracing::warn!("Failed to save audio recording to {}: {}", dir_str, e);
@@ -380,10 +408,10 @@ async fn run_standalone_record(config: Config, duration_secs: Option<u64>, no_pa
         output_mode: format!("{:?}", config.output_mode),
         audio_path,
     };
-    if let Ok(mgr) = history::HistoryManager::new(None) {
-        if let Err(e) = mgr.record(&hist_entry) {
-            tracing::warn!("Failed to persist transcription to history: {e}");
-        }
+    if let Ok(mgr) = history::HistoryManager::new(None)
+        && let Err(e) = mgr.record(&hist_entry)
+    {
+        tracing::warn!("Failed to persist transcription to history: {e}");
     }
 
     if !no_paste && config.output_mode == OutputMode::Paste {
@@ -408,7 +436,9 @@ async fn run_daemon(config: Config) -> Result<()> {
     tracing::info!("Formatting mode: {:?}", config.formatting_mode);
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<IpcCommand>(32);
-    let notifications = Arc::new(RwLock::new(NotificationManager::new(config.show_notifications)));
+    let notifications = Arc::new(RwLock::new(NotificationManager::new(
+        config.show_notifications,
+    )));
     let sound = Arc::new(RwLock::new(config.sound_player()));
     let client = Arc::new(RwLock::new(TranscriptionClient::new(&config)));
     let output_mgr = Arc::new(Mutex::new(OutputManager::new(&config)));
@@ -416,10 +446,10 @@ async fn run_daemon(config: Config) -> Result<()> {
     let active_recording: Arc<Mutex<Option<audio::ActiveRecording>>> = Arc::new(Mutex::new(None));
     let mut recorder = Arc::new(AudioRecorder::new(config.audio_device.clone()));
     let history_mgr = Arc::new(history::HistoryManager::new(None)?);
-    if let Some(ref dir_str) = config.save_audio_dir {
-        if let Err(err) = history_mgr.backfill_audio_paths(std::path::Path::new(dir_str)) {
-            tracing::warn!("Failed to backfill audio paths from {}: {}", dir_str, err);
-        }
+    if let Some(ref dir_str) = config.save_audio_dir
+        && let Err(err) = history_mgr.backfill_audio_paths(std::path::Path::new(dir_str))
+    {
+        tracing::warn!("Failed to backfill audio paths from {}: {}", dir_str, err);
     }
     let mut active_config = config;
 
@@ -450,7 +480,10 @@ async fn run_daemon(config: Config) -> Result<()> {
     println!("OpenWhisper daemon running in background.");
     println!("Trigger via:");
     if active_config.evdev_hotkey_enabled {
-        println!("  • Hardware hotkey (evdev): {} (Hold for PTT, tap to toggle)", active_config.evdev_hotkey);
+        println!(
+            "  • Hardware hotkey (evdev): {} (Hold for PTT, tap to toggle)",
+            active_config.evdev_hotkey
+        );
     }
     println!("  • Global shortcut (if configured in KDE/portal)");
     println!("  • CLI: `openwhisper toggle`");
@@ -458,7 +491,11 @@ async fn run_daemon(config: Config) -> Result<()> {
     println!("  • CLI: `openwhisper reload` (reloads config without restarting)");
 
     // Initialize StatusNotifierItem System Tray
-    let (tray_ctrl, _) = tray::start_tray_service(active_config.socket_path.clone(), active_config.server_url.clone()).await;
+    let (tray_ctrl, _) = tray::start_tray_service(
+        active_config.socket_path.clone(),
+        active_config.server_url.clone(),
+    )
+    .await;
 
     // Initialize Floating HUD Overlay
     let hud_ctrl = hud::start_hud_service(active_config.hud_enabled, active_config.hud_position);
@@ -478,13 +515,18 @@ async fn run_daemon(config: Config) -> Result<()> {
                     Action::None
                 }
                 IpcCommand::ReloadConfig => {
-                    tracing::info!("ReloadConfig IPC command received. Reloading configuration from disk...");
+                    tracing::info!(
+                        "ReloadConfig IPC command received. Reloading configuration from disk..."
+                    );
                     match Config::load() {
                         Ok(new_cfg) => {
                             tracing::info!("Successfully reloaded configuration from disk.");
                             *client.write().await = TranscriptionClient::new(&new_cfg);
                             *sound.write().await = new_cfg.sound_player();
-                            notifications.write().await.set_enabled(new_cfg.show_notifications);
+                            notifications
+                                .write()
+                                .await
+                                .set_enabled(new_cfg.show_notifications);
                             output_mgr.lock().await.update_config(&new_cfg);
                             eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
                             hud_ctrl.set_enabled(new_cfg.hud_enabled);
@@ -501,18 +543,26 @@ async fn run_daemon(config: Config) -> Result<()> {
                                     h.stop();
                                 }
                                 if new_cfg.evdev_hotkey_enabled {
-                                    evdev_handle = hotkey::start_evdev_listener(&new_cfg.evdev_hotkey, cmd_tx.clone());
+                                    evdev_handle = hotkey::start_evdev_listener(
+                                        &new_cfg.evdev_hotkey,
+                                        cmd_tx.clone(),
+                                    );
                                 }
                             }
 
                             // Reload audio recorder if device configuration changed
                             if new_cfg.audio_device != active_config.audio_device {
-                                recorder = Arc::new(AudioRecorder::new(new_cfg.audio_device.clone()));
-                                tracing::info!("Audio input device reconfigured to: {:?}", new_cfg.audio_device);
+                                recorder =
+                                    Arc::new(AudioRecorder::new(new_cfg.audio_device.clone()));
+                                tracing::info!(
+                                    "Audio input device reconfigured to: {:?}",
+                                    new_cfg.audio_device
+                                );
                             }
 
                             if let Some(ref dir_str) = new_cfg.save_audio_dir {
-                                let _ = history_mgr.backfill_audio_paths(std::path::Path::new(dir_str));
+                                let _ =
+                                    history_mgr.backfill_audio_paths(std::path::Path::new(dir_str));
                             }
 
                             active_config = new_cfg;
@@ -525,7 +575,9 @@ async fn run_daemon(config: Config) -> Result<()> {
                     Action::None
                 }
                 IpcCommand::PreviewHud => {
-                    tracing::info!("PreviewHud IPC command received. Triggering 1-shot HUD demo preview...");
+                    tracing::info!(
+                        "PreviewHud IPC command received. Triggering 1-shot HUD demo preview..."
+                    );
                     let ctrl = hud_ctrl.clone();
                     tokio::spawn(async move {
                         ctrl.set_recording();
@@ -555,8 +607,14 @@ async fn run_daemon(config: Config) -> Result<()> {
                 match recorder.start_recording() {
                     Ok(rec) => {
                         if rec.is_fallback() {
-                            tracing::warn!("Preferred microphone unavailable; recording using fallback microphone: {}", rec.device_name());
-                            tray_ctrl.set_active_device(Some(format!("{} (Fallback)", rec.device_name())));
+                            tracing::warn!(
+                                "Preferred microphone unavailable; recording using fallback microphone: {}",
+                                rec.device_name()
+                            );
+                            tray_ctrl.set_active_device(Some(format!(
+                                "{} (Fallback)",
+                                rec.device_name()
+                            )));
                             tray_ctrl.set_state(tray::TrayState::Degraded);
                         } else {
                             tray_ctrl.set_active_device(Some(rec.device_name().to_string()));
@@ -607,16 +665,15 @@ async fn run_daemon(config: Config) -> Result<()> {
                                     let rms = VadDetector::calculate_rms(&chunk);
                                     hud_ctrl_monitor.update_audio_level(rms);
 
-                                    if let Some(ref mut d) = detector {
-                                        if d.process_chunk(&chunk, Instant::now())
+                                    if let Some(ref mut d) = detector
+                                        && d.process_chunk(&chunk, Instant::now())
                                             == VadDecision::SilenceTimeout
-                                        {
-                                            tracing::info!(
-                                                "VAD silence threshold reached: automatically stopping recording"
-                                            );
-                                            let _ = cmd_tx_vad.send(IpcCommand::Toggle).await;
-                                            break;
-                                        }
+                                    {
+                                        tracing::info!(
+                                            "VAD silence threshold reached: automatically stopping recording"
+                                        );
+                                        let _ = cmd_tx_vad.send(IpcCommand::Toggle).await;
+                                        break;
                                     }
                                 }
                             }
@@ -626,7 +683,10 @@ async fn run_daemon(config: Config) -> Result<()> {
                         tracing::error!("Failed to start recording: {err}");
                         tray_ctrl.set_state(tray::TrayState::Error);
                         hud_ctrl.set_error(&format!("Mic error: {err}"));
-                        notifications.read().await.error(&format!("Mic error: {err}"));
+                        notifications
+                            .read()
+                            .await
+                            .error(&format!("Mic error: {err}"));
                         sound.read().await.play(EarconType::Error);
                         let mut eng = engine.lock().await;
                         eng.on_cancel();
@@ -660,7 +720,10 @@ async fn run_daemon(config: Config) -> Result<()> {
                     let save_audio_dir = active_config.save_audio_dir.clone();
                     let output_mode = active_config.output_mode;
                     if rec.has_stream_error() {
-                        tracing::warn!("Audio capture stream encountered errors during recording on device: {}", rec.device_name());
+                        tracing::warn!(
+                            "Audio capture stream encountered errors during recording on device: {}",
+                            rec.device_name()
+                        );
                     }
                     let wav_res = rec.stop_with_options(noise_suppression);
                     tokio::spawn(async move {
@@ -674,13 +737,25 @@ async fn run_daemon(config: Config) -> Result<()> {
                                 match transcribe_res {
                                     Ok(text) => {
                                         let duration = start.elapsed().as_secs_f32();
-                                        tracing::info!("Transcribed in {:.2}s: {:?}", duration, text);
+                                        tracing::info!(
+                                            "Transcribed in {:.2}s: {:?}",
+                                            duration,
+                                            text
+                                        );
 
                                         let audio_path = if let Some(ref dir_str) = save_audio_dir {
-                                            match crate::audio::save_recording_to_dir(std::path::Path::new(dir_str), &wav_bytes, &text) {
+                                            match crate::audio::save_recording_to_dir(
+                                                std::path::Path::new(dir_str),
+                                                &wav_bytes,
+                                                &text,
+                                            ) {
                                                 Ok(p) => Some(p.to_string_lossy().to_string()),
                                                 Err(e) => {
-                                                    tracing::warn!("Failed to save audio recording to {}: {}", dir_str, e);
+                                                    tracing::warn!(
+                                                        "Failed to save audio recording to {}: {}",
+                                                        dir_str,
+                                                        e
+                                                    );
                                                     None
                                                 }
                                             }
@@ -700,7 +775,9 @@ async fn run_daemon(config: Config) -> Result<()> {
                                             audio_path,
                                         };
                                         if let Err(err) = history_mgr_clone.record(&hist_entry) {
-                                            tracing::warn!("Failed to persist transcription history: {err}");
+                                            tracing::warn!(
+                                                "Failed to persist transcription history: {err}"
+                                            );
                                         }
 
                                         tray_ctrl_clone.set_diagnostics(Some(duration), None);
@@ -713,16 +790,24 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         let mut out = output_mgr_clone.lock().await;
                                         if let Err(err) = out.output_text(&text) {
                                             tracing::error!("Output injection error: {err}");
-                                            notif_clone.read().await.error(&format!("Output error: {err}"));
+                                            notif_clone
+                                                .read()
+                                                .await
+                                                .error(&format!("Output error: {err}"));
                                             sound_clone.read().await.play(EarconType::Error);
                                         }
                                     }
                                     Err(err) => {
                                         let err_str = err.to_string();
-                                        let descriptive_msg = if err_str.contains("Failed to connect") || err_str.contains("Connection refused") {
-                                            let srv = client_clone.read().await.server_url().to_string();
+                                        let descriptive_msg = if err_str
+                                            .contains("Failed to connect")
+                                            || err_str.contains("Connection refused")
+                                        {
+                                            let srv =
+                                                client_clone.read().await.server_url().to_string();
                                             format!("Server unreachable ({srv})")
-                                        } else if err_str.contains("401") || err_str.contains("403") {
+                                        } else if err_str.contains("401") || err_str.contains("403")
+                                        {
                                             "Auth error: Invalid API key".to_string()
                                         } else if err_str.contains("404") {
                                             let mdl = client_clone.read().await.model().to_string();
@@ -734,7 +819,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         };
 
                                         tracing::error!("Transcription error: {err}");
-                                        tray_ctrl_clone.set_diagnostics(None, Some(descriptive_msg.clone()));
+                                        tray_ctrl_clone
+                                            .set_diagnostics(None, Some(descriptive_msg.clone()));
                                         tray_ctrl_clone.set_state(tray::TrayState::Error);
                                         hud_ctrl_clone.set_error(&descriptive_msg);
                                         let reset_ctrl = tray_ctrl_clone.clone();
@@ -749,7 +835,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                             }
                             Err(err) => {
                                 let descriptive_msg = format!("Audio encoding error: {err}");
-                                tray_ctrl_clone.set_diagnostics(None, Some(descriptive_msg.clone()));
+                                tray_ctrl_clone
+                                    .set_diagnostics(None, Some(descriptive_msg.clone()));
                                 tracing::error!("Audio stop/encoding error: {err}");
                                 tray_ctrl_clone.set_state(tray::TrayState::Error);
                                 hud_ctrl_clone.set_error(&descriptive_msg);

@@ -16,10 +16,7 @@ use zbus::{connection::Builder, proxy};
     default_path = "/org/freedesktop/portal/desktop"
 )]
 trait GlobalShortcuts {
-    fn create_session(
-        &self,
-        options: &HashMap<&str, Value<'_>>,
-    ) -> zbus::Result<OwnedObjectPath>;
+    fn create_session(&self, options: &HashMap<&str, Value<'_>>) -> zbus::Result<OwnedObjectPath>;
 
     fn bind_shortcuts(
         &self,
@@ -65,7 +62,9 @@ impl PortalShortcutListener {
             Ok(b) => match b.build().await {
                 Ok(conn) => conn,
                 Err(err) => {
-                    tracing::warn!("Could not connect to D-Bus session: {err}. GlobalShortcuts portal disabled.");
+                    tracing::warn!(
+                        "Could not connect to D-Bus session: {err}. GlobalShortcuts portal disabled."
+                    );
                     return Ok(());
                 }
             },
@@ -90,7 +89,9 @@ impl PortalShortcutListener {
         let session_handle = match proxy.create_session(&session_opts).await {
             Ok(h) => h,
             Err(err) => {
-                tracing::info!("GlobalShortcuts portal session creation not available: {err}. Using IPC shortcuts.");
+                tracing::info!(
+                    "GlobalShortcuts portal session creation not available: {err}. Using IPC shortcuts."
+                );
                 return Ok(());
             }
         };
@@ -106,7 +107,9 @@ impl PortalShortcutListener {
             .bind_shortcuts(&session_handle, &shortcuts_to_bind, "", &bind_opts)
             .await
         {
-            tracing::info!("Could not bind shortcuts via XDG portal: {err}. (KDE custom shortcut or IPC remains active)");
+            tracing::info!(
+                "Could not bind shortcuts via XDG portal: {err}. (KDE custom shortcut or IPC remains active)"
+            );
             return Ok(());
         }
 
@@ -133,20 +136,20 @@ impl PortalShortcutListener {
 
         tokio::spawn(async move {
             while let Some(signal) = activated_stream.next().await {
-                if let Ok(args) = signal.args() {
-                    if args.shortcut_id == "dictate" {
-                        let _ = cmd_tx_act.send(IpcCommand::PttDown).await;
-                    }
+                if let Ok(args) = signal.args()
+                    && args.shortcut_id == "dictate"
+                {
+                    let _ = cmd_tx_act.send(IpcCommand::PttDown).await;
                 }
             }
         });
 
         tokio::spawn(async move {
             while let Some(signal) = deactivated_stream.next().await {
-                if let Ok(args) = signal.args() {
-                    if args.shortcut_id == "dictate" {
-                        let _ = cmd_tx_deact.send(IpcCommand::PttUp).await;
-                    }
+                if let Ok(args) = signal.args()
+                    && args.shortcut_id == "dictate"
+                {
+                    let _ = cmd_tx_deact.send(IpcCommand::PttUp).await;
                 }
             }
         });

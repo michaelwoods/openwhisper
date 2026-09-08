@@ -7,21 +7,20 @@ pub fn set_clipboard(text: &str) -> Result<()> {
     {
         use std::io::Write;
         use std::process::{Command, Stdio};
-        if std::env::var("WAYLAND_DISPLAY").is_ok() || has_command_in_path("wl-copy") {
-            if let Ok(mut child) = Command::new("wl-copy")
+        if (std::env::var("WAYLAND_DISPLAY").is_ok() || has_command_in_path("wl-copy"))
+            && let Ok(mut child) = Command::new("wl-copy")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
+        {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            if let Ok(status) = child.wait()
+                && status.success()
             {
-                if let Some(mut stdin) = child.stdin.take() {
-                    let _ = stdin.write_all(text.as_bytes());
-                }
-                if let Ok(status) = child.wait() {
-                    if status.success() {
-                        return Ok(());
-                    }
-                }
+                return Ok(());
             }
         }
     }
@@ -40,14 +39,12 @@ pub fn get_clipboard() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
-        if has_command_in_path("wl-paste") {
-            if let Ok(output) = Command::new("wl-paste").arg("--no-newline").output() {
-                if output.status.success() {
-                    if let Ok(s) = String::from_utf8(output.stdout) {
-                        return Some(s);
-                    }
-                }
-            }
+        if has_command_in_path("wl-paste")
+            && let Ok(output) = Command::new("wl-paste").arg("--no-newline").output()
+            && output.status.success()
+            && let Ok(s) = String::from_utf8(output.stdout)
+        {
+            return Some(s);
         }
     }
 

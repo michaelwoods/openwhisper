@@ -4,13 +4,19 @@ use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use evdev::{
-    uinput::{VirtualDevice, VirtualDeviceBuilder},
     AttributeSet, EventType, InputEvent, Key,
+    uinput::{VirtualDevice, VirtualDeviceBuilder},
 };
 
 pub struct TextInjector {
     #[cfg(target_os = "linux")]
     virtual_device: Option<VirtualDevice>,
+}
+
+impl Default for TextInjector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TextInjector {
@@ -43,10 +49,32 @@ impl TextInjector {
 
         // Letters A-Z
         let letter_keys = [
-            Key::KEY_A, Key::KEY_B, Key::KEY_C, Key::KEY_D, Key::KEY_E, Key::KEY_F, Key::KEY_G,
-            Key::KEY_H, Key::KEY_I, Key::KEY_J, Key::KEY_K, Key::KEY_L, Key::KEY_M, Key::KEY_N,
-            Key::KEY_O, Key::KEY_P, Key::KEY_Q, Key::KEY_R, Key::KEY_S, Key::KEY_T, Key::KEY_U,
-            Key::KEY_V, Key::KEY_W, Key::KEY_X, Key::KEY_Y, Key::KEY_Z,
+            Key::KEY_A,
+            Key::KEY_B,
+            Key::KEY_C,
+            Key::KEY_D,
+            Key::KEY_E,
+            Key::KEY_F,
+            Key::KEY_G,
+            Key::KEY_H,
+            Key::KEY_I,
+            Key::KEY_J,
+            Key::KEY_K,
+            Key::KEY_L,
+            Key::KEY_M,
+            Key::KEY_N,
+            Key::KEY_O,
+            Key::KEY_P,
+            Key::KEY_Q,
+            Key::KEY_R,
+            Key::KEY_S,
+            Key::KEY_T,
+            Key::KEY_U,
+            Key::KEY_V,
+            Key::KEY_W,
+            Key::KEY_X,
+            Key::KEY_Y,
+            Key::KEY_Z,
         ];
         for k in letter_keys {
             keys.insert(k);
@@ -54,8 +82,16 @@ impl TextInjector {
 
         // Numbers 0-9
         let digit_keys = [
-            Key::KEY_0, Key::KEY_1, Key::KEY_2, Key::KEY_3, Key::KEY_4,
-            Key::KEY_5, Key::KEY_6, Key::KEY_7, Key::KEY_8, Key::KEY_9,
+            Key::KEY_0,
+            Key::KEY_1,
+            Key::KEY_2,
+            Key::KEY_3,
+            Key::KEY_4,
+            Key::KEY_5,
+            Key::KEY_6,
+            Key::KEY_7,
+            Key::KEY_8,
+            Key::KEY_9,
         ];
         for k in digit_keys {
             keys.insert(k);
@@ -63,23 +99,38 @@ impl TextInjector {
 
         // Common punctuation & symbols
         let punct_keys = [
-            Key::KEY_MINUS, Key::KEY_EQUAL, Key::KEY_LEFTBRACE, Key::KEY_RIGHTBRACE,
-            Key::KEY_SEMICOLON, Key::KEY_APOSTROPHE, Key::KEY_GRAVE, Key::KEY_BACKSLASH,
-            Key::KEY_COMMA, Key::KEY_DOT, Key::KEY_SLASH,
+            Key::KEY_MINUS,
+            Key::KEY_EQUAL,
+            Key::KEY_LEFTBRACE,
+            Key::KEY_RIGHTBRACE,
+            Key::KEY_SEMICOLON,
+            Key::KEY_APOSTROPHE,
+            Key::KEY_GRAVE,
+            Key::KEY_BACKSLASH,
+            Key::KEY_COMMA,
+            Key::KEY_DOT,
+            Key::KEY_SLASH,
         ];
         for k in punct_keys {
             keys.insert(k);
         }
 
         match VirtualDeviceBuilder::new() {
-            Ok(builder) => match builder.name("OpenWhisper Virtual Keyboard").with_keys(&keys) {
+            Ok(builder) => match builder
+                .name("OpenWhisper Virtual Keyboard")
+                .with_keys(&keys)
+            {
                 Ok(b) => match b.build() {
                     Ok(dev) => {
-                        tracing::info!("Initialized /dev/uinput virtual keyboard for direct text typing & pasting");
+                        tracing::info!(
+                            "Initialized /dev/uinput virtual keyboard for direct text typing & pasting"
+                        );
                         Some(dev)
                     }
                     Err(err) => {
-                        tracing::warn!("Failed to build uinput virtual device: {err}. Direct keystroke paste will be disabled.");
+                        tracing::warn!(
+                            "Failed to build uinput virtual device: {err}. Direct keystroke paste will be disabled."
+                        );
                         None
                     }
                 },
@@ -134,7 +185,9 @@ impl TextInjector {
                 return Ok(());
             }
 
-            tracing::warn!("No active virtual keyboard or input tool available to simulate Ctrl+V. Text is saved in clipboard.");
+            tracing::warn!(
+                "No active virtual keyboard or input tool available to simulate Ctrl+V. Text is saved in clipboard."
+            );
             Ok(())
         }
 
@@ -162,12 +215,19 @@ impl TextInjector {
             // 1. Direct /dev/uinput virtual keyboard typing (Fastest: ~2ms per char, zero process forks)
             if let Some(ref mut dev) = self.virtual_device {
                 if can_type_with_uinput(text) {
-                    tracing::info!("Typing {} characters directly via /dev/uinput virtual keyboard", text.len());
+                    tracing::info!(
+                        "Typing {} characters directly via /dev/uinput virtual keyboard",
+                        text.len()
+                    );
                     for c in text.chars() {
                         if let Some((key, shift_needed)) = char_to_evdev_key(c) {
                             if shift_needed {
-                                dev.emit(&[InputEvent::new(EventType::KEY, Key::KEY_LEFTSHIFT.0, 1)])
-                                    .context("Failed to emit Shift down")?;
+                                dev.emit(&[InputEvent::new(
+                                    EventType::KEY,
+                                    Key::KEY_LEFTSHIFT.0,
+                                    1,
+                                )])
+                                .context("Failed to emit Shift down")?;
                             }
                             dev.emit(&[InputEvent::new(EventType::KEY, key.0, 1)])
                                 .context("Failed to emit key down")?;
@@ -175,8 +235,12 @@ impl TextInjector {
                             dev.emit(&[InputEvent::new(EventType::KEY, key.0, 0)])
                                 .context("Failed to emit key up")?;
                             if shift_needed {
-                                dev.emit(&[InputEvent::new(EventType::KEY, Key::KEY_LEFTSHIFT.0, 0)])
-                                    .context("Failed to emit Shift up")?;
+                                dev.emit(&[InputEvent::new(
+                                    EventType::KEY,
+                                    Key::KEY_LEFTSHIFT.0,
+                                    0,
+                                )])
+                                .context("Failed to emit Shift up")?;
                             }
                             sleep(Duration::from_millis(2));
                         }
@@ -185,38 +249,38 @@ impl TextInjector {
                     let _ = dev.emit(&[InputEvent::new(EventType::KEY, Key::KEY_LEFTSHIFT.0, 0)]);
                     return Ok(());
                 } else {
-                    tracing::info!("Text contains non-ASCII or unmapped characters; delegating to Wayland wtype");
+                    tracing::info!(
+                        "Text contains non-ASCII or unmapped characters; delegating to Wayland wtype"
+                    );
                 }
             }
 
             // 2. Try Wayland native wtype (virtual-keyboard-v1)
-            if crate::output::clipboard::has_command_in_path("wtype") {
-                if let Ok(status) = std::process::Command::new("wtype")
+            if crate::output::clipboard::has_command_in_path("wtype")
+                && let Ok(status) = std::process::Command::new("wtype")
                     .args(["--", text])
                     .status()
-                {
-                    if status.success() {
-                        tracing::info!("Emitted direct keystroke text input via wtype");
-                        return Ok(());
-                    }
-                }
+                && status.success()
+            {
+                tracing::info!("Emitted direct keystroke text input via wtype");
+                return Ok(());
             }
 
             // 3. Try ydotool type
-            if crate::output::clipboard::has_command_in_path("ydotool") {
-                if let Ok(status) = std::process::Command::new("ydotool")
+            if crate::output::clipboard::has_command_in_path("ydotool")
+                && let Ok(status) = std::process::Command::new("ydotool")
                     .args(["type", "--", text])
                     .status()
-                {
-                    if status.success() {
-                        tracing::info!("Emitted direct keystroke text input via ydotool");
-                        return Ok(());
-                    }
-                }
+                && status.success()
+            {
+                tracing::info!("Emitted direct keystroke text input via ydotool");
+                return Ok(());
             }
 
             // 4. Fallback to clipboard paste
-            tracing::warn!("Direct typing tool (wtype / ydotool) unavailable or failed; falling back to clipboard paste");
+            tracing::warn!(
+                "Direct typing tool (wtype / ydotool) unavailable or failed; falling back to clipboard paste"
+            );
             self.paste_clipboard(0)
         }
 
@@ -246,35 +310,80 @@ pub fn char_to_evdev_key(c: char) -> Option<(Key, bool)> {
     match c {
         'a'..='z' => {
             let key = match c {
-                'a' => Key::KEY_A, 'b' => Key::KEY_B, 'c' => Key::KEY_C, 'd' => Key::KEY_D,
-                'e' => Key::KEY_E, 'f' => Key::KEY_F, 'g' => Key::KEY_G, 'h' => Key::KEY_H,
-                'i' => Key::KEY_I, 'j' => Key::KEY_J, 'k' => Key::KEY_K, 'l' => Key::KEY_L,
-                'm' => Key::KEY_M, 'n' => Key::KEY_N, 'o' => Key::KEY_O, 'p' => Key::KEY_P,
-                'q' => Key::KEY_Q, 'r' => Key::KEY_R, 's' => Key::KEY_S, 't' => Key::KEY_T,
-                'u' => Key::KEY_U, 'v' => Key::KEY_V, 'w' => Key::KEY_W, 'x' => Key::KEY_X,
-                'y' => Key::KEY_Y, 'z' => Key::KEY_Z,
+                'a' => Key::KEY_A,
+                'b' => Key::KEY_B,
+                'c' => Key::KEY_C,
+                'd' => Key::KEY_D,
+                'e' => Key::KEY_E,
+                'f' => Key::KEY_F,
+                'g' => Key::KEY_G,
+                'h' => Key::KEY_H,
+                'i' => Key::KEY_I,
+                'j' => Key::KEY_J,
+                'k' => Key::KEY_K,
+                'l' => Key::KEY_L,
+                'm' => Key::KEY_M,
+                'n' => Key::KEY_N,
+                'o' => Key::KEY_O,
+                'p' => Key::KEY_P,
+                'q' => Key::KEY_Q,
+                'r' => Key::KEY_R,
+                's' => Key::KEY_S,
+                't' => Key::KEY_T,
+                'u' => Key::KEY_U,
+                'v' => Key::KEY_V,
+                'w' => Key::KEY_W,
+                'x' => Key::KEY_X,
+                'y' => Key::KEY_Y,
+                'z' => Key::KEY_Z,
                 _ => unreachable!(),
             };
             Some((key, false))
         }
         'A'..='Z' => {
             let key = match c {
-                'A' => Key::KEY_A, 'B' => Key::KEY_B, 'C' => Key::KEY_C, 'D' => Key::KEY_D,
-                'E' => Key::KEY_E, 'F' => Key::KEY_F, 'G' => Key::KEY_G, 'H' => Key::KEY_H,
-                'I' => Key::KEY_I, 'J' => Key::KEY_J, 'K' => Key::KEY_K, 'L' => Key::KEY_L,
-                'M' => Key::KEY_M, 'N' => Key::KEY_N, 'O' => Key::KEY_O, 'P' => Key::KEY_P,
-                'Q' => Key::KEY_Q, 'R' => Key::KEY_R, 'S' => Key::KEY_S, 'T' => Key::KEY_T,
-                'U' => Key::KEY_U, 'V' => Key::KEY_V, 'W' => Key::KEY_W, 'X' => Key::KEY_X,
-                'Y' => Key::KEY_Y, 'Z' => Key::KEY_Z,
+                'A' => Key::KEY_A,
+                'B' => Key::KEY_B,
+                'C' => Key::KEY_C,
+                'D' => Key::KEY_D,
+                'E' => Key::KEY_E,
+                'F' => Key::KEY_F,
+                'G' => Key::KEY_G,
+                'H' => Key::KEY_H,
+                'I' => Key::KEY_I,
+                'J' => Key::KEY_J,
+                'K' => Key::KEY_K,
+                'L' => Key::KEY_L,
+                'M' => Key::KEY_M,
+                'N' => Key::KEY_N,
+                'O' => Key::KEY_O,
+                'P' => Key::KEY_P,
+                'Q' => Key::KEY_Q,
+                'R' => Key::KEY_R,
+                'S' => Key::KEY_S,
+                'T' => Key::KEY_T,
+                'U' => Key::KEY_U,
+                'V' => Key::KEY_V,
+                'W' => Key::KEY_W,
+                'X' => Key::KEY_X,
+                'Y' => Key::KEY_Y,
+                'Z' => Key::KEY_Z,
                 _ => unreachable!(),
             };
             Some((key, true))
         }
         '0'..='9' => {
             let key = match c {
-                '0' => Key::KEY_0, '1' => Key::KEY_1, '2' => Key::KEY_2, '3' => Key::KEY_3,
-                '4' => Key::KEY_4, '5' => Key::KEY_5, '6' => Key::KEY_6, '7' => Key::KEY_7,
-                '8' => Key::KEY_8, '9' => Key::KEY_9,
+                '0' => Key::KEY_0,
+                '1' => Key::KEY_1,
+                '2' => Key::KEY_2,
+                '3' => Key::KEY_3,
+                '4' => Key::KEY_4,
+                '5' => Key::KEY_5,
+                '6' => Key::KEY_6,
+                '7' => Key::KEY_7,
+                '8' => Key::KEY_8,
+                '9' => Key::KEY_9,
                 _ => unreachable!(),
             };
             Some((key, false))

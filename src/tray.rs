@@ -54,11 +54,11 @@ impl OpenWhisperTray {
 
         // High-contrast colors matching standard desktop tray themes
         let (r, g, b) = match state {
-            TrayState::Idle => (248, 250, 252),        // Crisp bright white (#f8fafc)
-            TrayState::Recording => (239, 68, 68),      // Vivid red (#ef4444)
-            TrayState::Transcribing => (56, 189, 248),  // Cyan blue (#38bdf8)
-            TrayState::Degraded => (245, 158, 11),      // Warm amber (#f59e0b)
-            TrayState::Error => (148, 163, 184),        // Muted slate (#94a3b8)
+            TrayState::Idle => (248, 250, 252), // Crisp bright white (#f8fafc)
+            TrayState::Recording => (239, 68, 68), // Vivid red (#ef4444)
+            TrayState::Transcribing => (56, 189, 248), // Cyan blue (#38bdf8)
+            TrayState::Degraded => (245, 158, 11), // Warm amber (#f59e0b)
+            TrayState::Error => (148, 163, 184), // Muted slate (#94a3b8)
         };
 
         for y in 0..height {
@@ -102,7 +102,10 @@ impl OpenWhisperTray {
 
                 // State accents:
                 // Recording: sound wave arcs
-                if state == TrayState::Recording && ((2..=3).contains(&x) || (20..=21).contains(&x)) && (8..=14).contains(&y) {
+                if state == TrayState::Recording
+                    && ((2..=3).contains(&x) || (20..=21).contains(&x))
+                    && (8..=14).contains(&y)
+                {
                     data[idx] = 255;
                     data[idx + 1] = 239;
                     data[idx + 2] = 68;
@@ -111,7 +114,10 @@ impl OpenWhisperTray {
                 }
 
                 // Transcribing: side bracket arcs
-                if state == TrayState::Transcribing && ((2..=3).contains(&x) || (20..=21).contains(&x)) && (8..=15).contains(&y) {
+                if state == TrayState::Transcribing
+                    && ((2..=3).contains(&x) || (20..=21).contains(&x))
+                    && (8..=15).contains(&y)
+                {
                     data[idx] = 255;
                     data[idx + 1] = 56;
                     data[idx + 2] = 189;
@@ -148,12 +154,12 @@ impl OpenWhisperTray {
                 }
 
                 if filled {
-                    data[idx] = 255;     // Alpha
-                    data[idx + 1] = r;   // Red
-                    data[idx + 2] = g;   // Green
-                    data[idx + 3] = b;   // Blue
+                    data[idx] = 255; // Alpha
+                    data[idx + 1] = r; // Red
+                    data[idx + 2] = g; // Green
+                    data[idx + 3] = b; // Blue
                 } else {
-                    data[idx] = 0;       // Transparent
+                    data[idx] = 0; // Transparent
                     data[idx + 1] = 0;
                     data[idx + 2] = 0;
                     data[idx + 3] = 0;
@@ -223,25 +229,29 @@ impl ksni::Tray for OpenWhisperTray {
             TrayState::Error => "Error during transcription",
         };
 
-        let server = self.server_url.read().map(|s| s.clone()).unwrap_or_default();
+        let server = self
+            .server_url
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or_default();
         let mut desc = format!("Status: {}\nServer: {}", status_desc, server);
 
-        if let Ok(dev_opt) = self.active_device.read() {
-            if let Some(ref d) = *dev_opt {
-                desc.push_str(&format!("\nMicrophone: {}", d));
-            }
+        if let Ok(dev_opt) = self.active_device.read()
+            && let Some(ref d) = *dev_opt
+        {
+            desc.push_str(&format!("\nMicrophone: {}", d));
         }
 
-        if let Ok(lat_opt) = self.last_latency.read() {
-            if let Some(lat) = *lat_opt {
-                desc.push_str(&format!("\nLast Latency: {:.2}s", lat));
-            }
+        if let Ok(lat_opt) = self.last_latency.read()
+            && let Some(lat) = *lat_opt
+        {
+            desc.push_str(&format!("\nLast Latency: {:.2}s", lat));
         }
 
-        if let Ok(err_opt) = self.last_error.read() {
-            if let Some(ref err) = *err_opt {
-                desc.push_str(&format!("\nLast Error: {}", err));
-            }
+        if let Ok(err_opt) = self.last_error.read()
+            && let Some(ref err) = *err_opt
+        {
+            desc.push_str(&format!("\nLast Error: {}", err));
         }
 
         ksni::ToolTip {
@@ -263,7 +273,11 @@ impl ksni::Tray for OpenWhisperTray {
         info!("Tray icon activated: toggling dictation");
         let socket = self.socket_path.clone();
         tokio::spawn(async move {
-            let _ = crate::hotkey::ipc::send_ipc_command(&socket, crate::hotkey::ipc::IpcCommand::Toggle).await;
+            let _ = crate::hotkey::ipc::send_ipc_command(
+                &socket,
+                crate::hotkey::ipc::IpcCommand::Toggle,
+            )
+            .await;
         });
     }
 
@@ -294,7 +308,11 @@ impl ksni::Tray for OpenWhisperTray {
                 activate: Box::new(move |_| {
                     let s = socket_for_toggle.clone();
                     tokio::spawn(async move {
-                        let _ = crate::hotkey::ipc::send_ipc_command(&s, crate::hotkey::ipc::IpcCommand::Toggle).await;
+                        let _ = crate::hotkey::ipc::send_ipc_command(
+                            &s,
+                            crate::hotkey::ipc::IpcCommand::Toggle,
+                        )
+                        .await;
                     });
                 }),
                 ..Default::default()
@@ -346,8 +364,13 @@ impl ksni::Tray for OpenWhisperTray {
                 label: "🔍  Browse Full History...".into(),
                 activate: Box::new(|_| {
                     info!("Launching OpenWhisper History GUI from tray menu...");
-                    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openwhisper"));
-                    if let Err(e) = std::process::Command::new(exe).arg("history").arg("--gui").spawn() {
+                    let exe =
+                        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openwhisper"));
+                    if let Err(e) = std::process::Command::new(exe)
+                        .arg("history")
+                        .arg("--gui")
+                        .spawn()
+                    {
                         warn!("Failed to spawn history GUI: {}", e);
                     }
                 }),
@@ -370,7 +393,8 @@ impl ksni::Tray for OpenWhisperTray {
                 label: "⚙️  Settings / Configuration...".into(),
                 activate: Box::new(|_| {
                     info!("Launching OpenWhisper Settings GUI from tray menu...");
-                    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("/usr/local/bin/openwhisper"));
+                    let exe = std::env::current_exe()
+                        .unwrap_or_else(|_| PathBuf::from("/usr/local/bin/openwhisper"));
                     if let Err(e) = std::process::Command::new(exe).arg("config-gui").spawn() {
                         warn!("Failed to spawn settings GUI: {}", e);
                     }
@@ -472,10 +496,10 @@ impl TrayController {
     }
 
     pub fn set_diagnostics(&self, latency: Option<f32>, error: Option<String>) {
-        if let Some(l) = latency {
-            if let Ok(mut lock) = self.last_latency.write() {
-                *lock = Some(l);
-            }
+        if let Some(l) = latency
+            && let Ok(mut lock) = self.last_latency.write()
+        {
+            *lock = Some(l);
         }
         if let Ok(mut lock) = self.last_error.write() {
             *lock = error.clone();
@@ -486,10 +510,10 @@ impl TrayController {
             tokio::spawn(async move {
                 handle
                     .update(|tray| {
-                        if let Some(l) = latency {
-                            if let Ok(mut lock) = tray.last_latency.write() {
-                                *lock = Some(l);
-                            }
+                        if let Some(l) = latency
+                            && let Ok(mut lock) = tray.last_latency.write()
+                        {
+                            *lock = Some(l);
                         }
                         if let Ok(mut lock) = tray.last_error.write() {
                             *lock = error;
@@ -564,13 +588,18 @@ impl TrayController {
 
     #[allow(dead_code)]
     pub fn history(&self) -> Vec<String> {
-        self.history.read().map(|h| h.iter().cloned().collect()).unwrap_or_default()
+        self.history
+            .read()
+            .map(|h| h.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }
 
-
 /// Spawn the system tray in background if on Linux
-pub async fn start_tray_service(socket_path: String, server_url: String) -> (TrayController, Arc<RwLock<TrayState>>) {
+pub async fn start_tray_service(
+    socket_path: String,
+    server_url: String,
+) -> (TrayController, Arc<RwLock<TrayState>>) {
     let state = Arc::new(RwLock::new(TrayState::Idle));
     let history = Arc::new(RwLock::new(VecDeque::new()));
     let server_url_arc = Arc::new(RwLock::new(server_url));
@@ -607,7 +636,9 @@ pub async fn start_tray_service(socket_path: String, server_url: String) -> (Tra
                 )
             }
             Err(err) => {
-                warn!("StatusNotifierWatcher not available or failed to register tray: {err}. Running without system tray.");
+                warn!(
+                    "StatusNotifierWatcher not available or failed to register tray: {err}. Running without system tray."
+                );
                 (
                     TrayController::new(
                         None,
@@ -740,10 +771,13 @@ mod tests {
 
         // Add second entry (prepends)
         ctrl.add_history("Second transcription".to_string());
-        assert_eq!(ctrl.history(), vec![
-            "Second transcription".to_string(),
-            "First transcription".to_string(),
-        ]);
+        assert_eq!(
+            ctrl.history(),
+            vec![
+                "Second transcription".to_string(),
+                "First transcription".to_string(),
+            ]
+        );
 
         // Push 11 items to test ring buffer max capacity (10)
         for i in 1..=11 {
@@ -782,4 +816,3 @@ mod tests {
         assert!(tooltip.description.contains("USB Condenser Mic"));
     }
 }
-

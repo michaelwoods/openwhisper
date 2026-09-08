@@ -117,11 +117,7 @@ pub struct Config {
     )]
     pub noise_suppression: bool,
 
-    #[serde(
-        default,
-        alias = "recordings_dir",
-        alias = "save_audio_path"
-    )]
+    #[serde(default, alias = "recordings_dir", alias = "save_audio_path")]
     pub save_audio_dir: Option<String>,
 }
 
@@ -316,8 +312,7 @@ impl Config {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create config dir {:?}", parent))?;
         }
-        let content = toml::to_string_pretty(self)
-            .context("Failed to serialize config to TOML")?;
+        let content = toml::to_string_pretty(self).context("Failed to serialize config to TOML")?;
         fs::write(&path, content)
             .with_context(|| format!("Failed to write config file to {:?}", path))?;
         Ok(())
@@ -338,13 +333,17 @@ impl Config {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_default_config() {
         let cfg = Config::default();
-        assert_eq!(cfg.server_url, "http://localhost:8000/v1/audio/transcriptions");
+        assert_eq!(
+            cfg.server_url,
+            "http://localhost:8000/v1/audio/transcriptions"
+        );
         assert_eq!(cfg.model, "whisper");
         assert_eq!(cfg.ptt_threshold_ms, 350);
         assert_eq!(cfg.output_mode, OutputMode::Paste);
@@ -388,7 +387,10 @@ mod tests {
             vad_enabled = true
         "#;
         let parsed: Config = toml::from_str(partial).expect("Partial parsing failed");
-        assert_eq!(parsed.server_url, "http://127.0.0.1:9000/v1/audio/transcriptions");
+        assert_eq!(
+            parsed.server_url,
+            "http://127.0.0.1:9000/v1/audio/transcriptions"
+        );
         assert_eq!(parsed.model, "whisper"); // default
         assert_eq!(parsed.formatting_mode, FormattingMode::CamelCase);
         assert!(parsed.vad_enabled);
@@ -481,7 +483,10 @@ mod tests {
 
         #[cfg(target_os = "linux")]
         {
-            assert_eq!(parse_evdev_key("KEY_RIGHTALT"), Some(evdev::Key::KEY_RIGHTALT));
+            assert_eq!(
+                parse_evdev_key("KEY_RIGHTALT"),
+                Some(evdev::Key::KEY_RIGHTALT)
+            );
             assert_eq!(parse_evdev_key("rightalt"), Some(evdev::Key::KEY_RIGHTALT));
             assert_eq!(parse_evdev_key("RightAlt"), Some(evdev::Key::KEY_RIGHTALT));
             assert_eq!(parse_evdev_key("100"), Some(evdev::Key::KEY_RIGHTALT));
@@ -489,7 +494,10 @@ mod tests {
             assert_eq!(parse_evdev_key("help"), Some(evdev::Key::KEY_HELP));
             assert_eq!(parse_evdev_key("Help"), Some(evdev::Key::KEY_HELP));
             assert_eq!(parse_evdev_key("138"), Some(evdev::Key::KEY_HELP));
-            assert_eq!(parse_evdev_key("KEY_MICMUTE"), Some(evdev::Key::KEY_MICMUTE));
+            assert_eq!(
+                parse_evdev_key("KEY_MICMUTE"),
+                Some(evdev::Key::KEY_MICMUTE)
+            );
             assert_eq!(parse_evdev_key("micmute"), Some(evdev::Key::KEY_MICMUTE));
             assert_eq!(parse_evdev_key("nonexistent_key_12345"), None);
         }

@@ -158,7 +158,8 @@ mod tests {
 
     #[test]
     fn test_cli_record_arguments() {
-        let rec = Cli::try_parse_from(["openwhisper", "record", "--duration", "5", "--no-paste"]).unwrap();
+        let rec = Cli::try_parse_from(["openwhisper", "record", "--duration", "5", "--no-paste"])
+            .unwrap();
         match rec.command {
             Some(Commands::Record { duration, no_paste }) => {
                 assert_eq!(duration, Some(5));
@@ -179,9 +180,27 @@ mod tests {
 
     #[test]
     fn test_cli_history_arguments() {
-        let hist = Cli::try_parse_from(["openwhisper", "history", "--limit", "25", "--search", "meeting", "--gui"]).unwrap();
+        let hist = Cli::try_parse_from([
+            "openwhisper",
+            "history",
+            "--limit",
+            "25",
+            "--search",
+            "meeting",
+            "--gui",
+        ])
+        .unwrap();
         match hist.command {
-            Some(Commands::History { limit, search, copy, play, delete, clear, json, gui }) => {
+            Some(Commands::History {
+                limit,
+                search,
+                copy,
+                play,
+                delete,
+                clear,
+                json,
+                gui,
+            }) => {
                 assert_eq!(limit, 25);
                 assert_eq!(search, Some("meeting".to_string()));
                 assert!(copy.is_none());
@@ -203,4 +222,3 @@ mod tests {
         }
     }
 }
-

@@ -8,11 +8,7 @@ pub const RNNOISE_FRAME_SIZE: usize = nnnoiseless::FRAME_SIZE; // 480 samples
 /// If `source_rate` is not 48,000 Hz, the audio is resampled to 48 kHz,
 /// processed in 480-sample (10ms) frames through `DenoiseState`,
 /// and then resampled back to `target_rate` (or downsampled to 16 kHz for Whisper).
-pub fn denoise_audio_mono(
-    mono_samples: &[f32],
-    source_rate: u32,
-    target_rate: u32,
-) -> Vec<f32> {
+pub fn denoise_audio_mono(mono_samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
     if mono_samples.is_empty() {
         return Vec::new();
     }

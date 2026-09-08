@@ -22,10 +22,19 @@ pub fn resample_f32_mono(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f
     };
 
     let chunk_size = 1024.min(samples.len());
-    let mut resampler = match Fft::<f32>::new(src_rate as usize, dst_rate as usize, chunk_size, 1, FixedSync::Both) {
+    let mut resampler = match Fft::<f32>::new(
+        src_rate as usize,
+        dst_rate as usize,
+        chunk_size,
+        1,
+        FixedSync::Both,
+    ) {
         Ok(r) => r,
         Err(e) => {
-            tracing::debug!("Rubato Fft resampler init failed ({}), falling back to linear", e);
+            tracing::debug!(
+                "Rubato Fft resampler init failed ({}), falling back to linear",
+                e
+            );
             return resample_linear(samples, src_rate, dst_rate);
         }
     };
@@ -177,7 +186,12 @@ mod tests {
         assert_eq!(out.len(), 1600);
         // Check steady-state middle section (within standard filter ripple tolerance)
         let diff = (out[800] as i32 - (0.5f32 * 32767.0).round() as i32).abs();
-        assert!(diff < 250, "Expected amplitude near 16384, got {} (diff: {})", out[800], diff);
+        assert!(
+            diff < 250,
+            "Expected amplitude near 16384, got {} (diff: {})",
+            out[800],
+            diff
+        );
     }
 
     #[test]
@@ -200,7 +214,11 @@ mod tests {
 
         // An input sine with amplitude 1.0 has RMS ~0.707.
         // The anti-aliasing filter must attenuate it significantly below 0.15.
-        assert!(rms < 0.15, "12kHz tone was not properly attenuated by anti-aliasing filter (RMS: {})", rms);
+        assert!(
+            rms < 0.15,
+            "12kHz tone was not properly attenuated by anti-aliasing filter (RMS: {})",
+            rms
+        );
     }
 
     #[test]

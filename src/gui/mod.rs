@@ -111,7 +111,9 @@ pub fn config_to_ui(
     }
     ui.set_audio_device_index(active_device_idx as i32);
     ui.set_noise_suppression(config.noise_suppression);
-    ui.set_save_audio_dir(SharedString::from(config.save_audio_dir.as_deref().unwrap_or("")));
+    ui.set_save_audio_dir(SharedString::from(
+        config.save_audio_dir.as_deref().unwrap_or(""),
+    ));
 
     // 4. Feedback & HUD Properties
     ui.set_sound_enabled(config.sound_feedback);
@@ -254,7 +256,10 @@ pub fn run_gui(config: Config) -> Result<()> {
     let detected_devices = crate::audio::AudioRecorder::list_input_devices().unwrap_or_default();
     let mut device_items = vec!["(System Default)".to_string()];
     device_items.extend(detected_devices);
-    let dev_shared: Vec<SharedString> = device_items.iter().map(|s| SharedString::from(s.as_str())).collect();
+    let dev_shared: Vec<SharedString> = device_items
+        .iter()
+        .map(|s| SharedString::from(s.as_str()))
+        .collect();
     ui.set_audio_devices(ModelRc::from(Rc::new(VecModel::from(dev_shared))));
 
     let vocab_model = Rc::new(VecModel::default());
@@ -270,11 +275,11 @@ pub fn run_gui(config: Config) -> Result<()> {
             if !trimmed.is_empty() {
                 let mut exists = false;
                 for i in 0..vocab_model.row_count() {
-                    if let Some(existing) = vocab_model.row_data(i) {
-                        if existing.as_str().eq_ignore_ascii_case(trimmed) {
-                            exists = true;
-                            break;
-                        }
+                    if let Some(existing) = vocab_model.row_data(i)
+                        && existing.as_str().eq_ignore_ascii_case(trimmed)
+                    {
+                        exists = true;
+                        break;
                     }
                 }
                 if !exists {
@@ -298,7 +303,9 @@ pub fn run_gui(config: Config) -> Result<()> {
     {
         let ui_weak = ui.as_weak();
         ui.on_test_connection(move || {
-            let Some(ui) = ui_weak.upgrade() else { return; };
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
             ui.set_test_in_progress(true);
             ui.set_status_text(SharedString::from("Testing connection to endpoint..."));
             ui.set_status_is_error(false);
@@ -355,12 +362,14 @@ pub fn run_gui(config: Config) -> Result<()> {
                     }
                     let wav_bytes = buf.into_inner();
 
-                    let mut test_cfg = Config::default();
-                    test_cfg.server_url = server_url.clone();
-                    test_cfg.model = model_name;
-                    test_cfg.api_key = api_key;
-                    test_cfg.language = language;
-                    test_cfg.prompt = prompt;
+                    let test_cfg = Config {
+                        server_url: server_url.clone(),
+                        model: model_name,
+                        api_key,
+                        language,
+                        prompt,
+                        ..Default::default()
+                    };
 
                     let client = TranscriptionClient::new(&test_cfg);
                     let start = Instant::now();
@@ -376,11 +385,14 @@ pub fn run_gui(config: Config) -> Result<()> {
                                 ui.set_status_text(SharedString::from(msg));
                                 ui.set_status_is_error(false);
                                 let ui_clr = ui.as_weak();
-                                slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
-                                    if let Some(ui) = ui_clr.upgrade() {
-                                        ui.set_status_text(SharedString::default());
-                                    }
-                                });
+                                slint::Timer::single_shot(
+                                    std::time::Duration::from_secs(6),
+                                    move || {
+                                        if let Some(ui) = ui_clr.upgrade() {
+                                            ui.set_status_text(SharedString::default());
+                                        }
+                                    },
+                                );
                             });
                         }
                         Err(err) => {
@@ -390,11 +402,14 @@ pub fn run_gui(config: Config) -> Result<()> {
                                 ui.set_status_text(SharedString::from(msg));
                                 ui.set_status_is_error(true);
                                 let ui_clr = ui.as_weak();
-                                slint::Timer::single_shot(std::time::Duration::from_secs(8), move || {
-                                    if let Some(ui) = ui_clr.upgrade() {
-                                        ui.set_status_text(SharedString::default());
-                                    }
-                                });
+                                slint::Timer::single_shot(
+                                    std::time::Duration::from_secs(8),
+                                    move || {
+                                        if let Some(ui) = ui_clr.upgrade() {
+                                            ui.set_status_text(SharedString::default());
+                                        }
+                                    },
+                                );
                             });
                         }
                     }
@@ -407,7 +422,9 @@ pub fn run_gui(config: Config) -> Result<()> {
     {
         let ui_weak = ui.as_weak();
         ui.on_test_sound(move || {
-            let Some(ui) = ui_weak.upgrade() else { return; };
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
             let vol = ui.get_sound_vol();
             let player = SoundPlayer::new(true, vol);
             player.play(EarconType::RecordingStarted);
@@ -425,10 +442,9 @@ pub fn run_gui(config: Config) -> Result<()> {
             if let Ok(res) = crate::hotkey::ipc::send_ipc_command_sync(
                 &socket_path,
                 crate::hotkey::ipc::IpcCommand::PreviewHud,
-            ) {
-                if res.status == "ok" {
-                    sent_ipc = true;
-                }
+            ) && res.status == "ok"
+            {
+                sent_ipc = true;
             }
 
             // 2. If daemon not running, launch tracked 1-shot preview process
@@ -438,7 +454,10 @@ pub fn run_gui(config: Config) -> Result<()> {
                     let _ = child.kill();
                 }
                 let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("openwhisper"));
-                if let Ok(child) = std::process::Command::new(exe).args(["hud-demo", "--once"]).spawn() {
+                if let Ok(child) = std::process::Command::new(exe)
+                    .args(["hud-demo", "--once"])
+                    .spawn()
+                {
                     *lock = Some(child);
                 }
             }
@@ -449,9 +468,13 @@ pub fn run_gui(config: Config) -> Result<()> {
     {
         let ui_weak = ui.as_weak();
         ui.on_detect_hotkey(move || {
-            let Some(ui) = ui_weak.upgrade() else { return; };
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
             ui.set_detecting_hotkey(true);
-            ui.set_status_text(SharedString::from("Listening for hardware keypress (10s timeout)..."));
+            ui.set_status_text(SharedString::from(
+                "Listening for hardware keypress (10s timeout)...",
+            ));
             ui.set_status_is_error(false);
 
             let ui_bg = ui_weak.clone();
@@ -461,7 +484,10 @@ pub fn run_gui(config: Config) -> Result<()> {
                     ui.set_detecting_hotkey(false);
                     if let Some(key) = key_opt {
                         ui.set_evdev_key(SharedString::from(&key));
-                        ui.set_status_text(SharedString::from(format!("Detected hardware key: {}", key)));
+                        ui.set_status_text(SharedString::from(format!(
+                            "Detected hardware key: {}",
+                            key
+                        )));
                         ui.set_status_is_error(false);
                     } else {
                         ui.set_status_text(SharedString::from("Key detection timed out."));
@@ -578,10 +604,7 @@ pub fn run_gui(config: Config) -> Result<()> {
         ui.on_save_and_apply(move || {
             let Some(ui) = ui_weak.upgrade() else { return; };
 
-            let base_cfg = match Config::load() {
-                Ok(c) => c,
-                Err(_) => Config::default(),
-            };
+            let base_cfg = Config::load().unwrap_or_default();
             let cfg = ui_to_config(&ui, &vocab_model, &device_items, &base_cfg);
 
             match cfg.save() {
@@ -591,11 +614,10 @@ pub fn run_gui(config: Config) -> Result<()> {
                     if let Ok(res) = crate::hotkey::ipc::send_ipc_command_sync(
                         &socket_path,
                         crate::hotkey::ipc::IpcCommand::ReloadConfig,
-                    ) {
-                        if res.status == "ok" {
+                    )
+                        && res.status == "ok" {
                             reloaded = true;
                         }
-                    }
 
                     if reloaded {
                         ui.set_status_text(SharedString::from(
@@ -638,7 +660,9 @@ pub fn run_gui(config: Config) -> Result<()> {
         let ui_weak = ui.as_weak();
         let vocab_model = vocab_model.clone();
         ui.on_reset_defaults(move || {
-            let Some(ui) = ui_weak.upgrade() else { return; };
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
             let def = Config::default();
 
             config_to_ui(&def, &ui, &device_items, &vocab_model);
@@ -657,7 +681,8 @@ pub fn run_gui(config: Config) -> Result<()> {
         });
     }
 
-    let res = ui.run()
+    let res = ui
+        .run()
         .map_err(|e| anyhow::anyhow!("Slint GUI error: {e}"));
 
     if let Some(mut child) = preview_child.borrow_mut().take() {
@@ -669,6 +694,7 @@ pub fn run_gui(config: Config) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -698,8 +724,13 @@ mod tests {
         let ui = SettingsWindow::new().expect("Failed to create SettingsWindow");
 
         // --- 1. Direct Property Setters and Getters ---
-        ui.set_server_url(SharedString::from("http://custom-host:8000/v1/audio/transcriptions"));
-        assert_eq!(ui.get_server_url().as_str(), "http://custom-host:8000/v1/audio/transcriptions");
+        ui.set_server_url(SharedString::from(
+            "http://custom-host:8000/v1/audio/transcriptions",
+        ));
+        assert_eq!(
+            ui.get_server_url().as_str(),
+            "http://custom-host:8000/v1/audio/transcriptions"
+        );
 
         ui.set_model_name(SharedString::from("whisper-large-v3"));
         assert_eq!(ui.get_model_name().as_str(), "whisper-large-v3");
@@ -752,7 +783,10 @@ mod tests {
         ui.set_mic_clipping(true);
         assert!(ui.get_mic_clipping());
         ui.set_mic_level_text(SharedString::from("Level: 65% (Strong Signal)"));
-        assert_eq!(ui.get_mic_level_text().as_str(), "Level: 65% (Strong Signal)");
+        assert_eq!(
+            ui.get_mic_level_text().as_str(),
+            "Level: 65% (Strong Signal)"
+        );
 
         // --- 2. Full Roundtrip: Config -> UI -> Config ---
         let vocab_model = Rc::new(VecModel::default());
@@ -787,7 +821,11 @@ mod tests {
         original.vad_energy_threshold = 0.045;
         original.formatting_mode = FormattingMode::CamelCase;
         original.trailing_space = false;
-        original.vocabulary = vec!["Slint".to_string(), "Wayland".to_string(), "Rust".to_string()];
+        original.vocabulary = vec![
+            "Slint".to_string(),
+            "Wayland".to_string(),
+            "Rust".to_string(),
+        ];
 
         config_to_ui(&original, &ui, &device_items, &vocab_model);
         let extracted = ui_to_config(&ui, &vocab_model, &device_items, &Config::default());
@@ -800,7 +838,10 @@ mod tests {
         assert_eq!(extracted.audio_device, original.audio_device);
         assert_eq!(extracted.noise_suppression, original.noise_suppression);
         assert_eq!(extracted.save_audio_dir, original.save_audio_dir);
-        assert_eq!(extracted.evdev_hotkey_enabled, original.evdev_hotkey_enabled);
+        assert_eq!(
+            extracted.evdev_hotkey_enabled,
+            original.evdev_hotkey_enabled
+        );
         assert_eq!(extracted.evdev_hotkey, original.evdev_hotkey);
         assert_eq!(extracted.ptt_threshold_ms, original.ptt_threshold_ms);
         assert_eq!(extracted.output_mode, original.output_mode);
@@ -812,7 +853,10 @@ mod tests {
         assert_eq!(extracted.hud_enabled, original.hud_enabled);
         assert_eq!(extracted.hud_position, original.hud_position);
         assert_eq!(extracted.vad_enabled, original.vad_enabled);
-        assert_eq!(extracted.vad_silence_timeout_ms, original.vad_silence_timeout_ms);
+        assert_eq!(
+            extracted.vad_silence_timeout_ms,
+            original.vad_silence_timeout_ms
+        );
         assert!((extracted.vad_energy_threshold - original.vad_energy_threshold).abs() < 1e-4);
         assert_eq!(extracted.formatting_mode, original.formatting_mode);
         assert_eq!(extracted.trailing_space, original.trailing_space);
@@ -826,8 +870,8 @@ mod tests {
         ui.set_prompt_text(SharedString::from("   "));
         ui.set_save_audio_dir(SharedString::from("   "));
         ui.set_ptt_threshold(10); // Below min 50ms
-        ui.set_paste_delay(1);    // Below min 5ms
-        ui.set_sound_vol(1.8);    // Above max 1.0
+        ui.set_paste_delay(1); // Below min 5ms
+        ui.set_sound_vol(1.8); // Above max 1.0
         ui.set_vad_silence_timeout(20); // Below min 100ms
         ui.set_vad_threshold(0.00001); // Below min 0.001
 
@@ -848,11 +892,14 @@ mod tests {
         assert_eq!(cfg.prompt, None);
         assert_eq!(cfg.save_audio_dir, None);
         assert_eq!(cfg.ptt_threshold_ms, 50); // Clamped
-        assert_eq!(cfg.paste_delay_ms, 5);    // Clamped
+        assert_eq!(cfg.paste_delay_ms, 5); // Clamped
         assert!((cfg.sound_volume - 1.0).abs() < 1e-4); // Clamped
-        assert_eq!(cfg.vad_silence_timeout_ms, 100);    // Clamped
+        assert_eq!(cfg.vad_silence_timeout_ms, 100); // Clamped
         assert!((cfg.vad_energy_threshold - 0.001).abs() < 1e-4); // Clamped
-        assert_eq!(cfg.vocabulary, vec!["Fedora".to_string(), "Plasma".to_string()]);
+        assert_eq!(
+            cfg.vocabulary,
+            vec!["Fedora".to_string(), "Plasma".to_string()]
+        );
 
         // --- 4. Audio Device Selection Matching ---
         let mut dev_cfg = Config::default();
@@ -878,4 +925,3 @@ mod tests {
         assert_eq!(ui.get_audio_device_index(), 0);
     }
 }
-

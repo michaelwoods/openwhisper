@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 pub mod gui;
 
@@ -63,8 +63,8 @@ impl HistoryManager {
 
     /// Creates an in-memory database instance (primarily for fast, isolated unit tests).
     pub fn in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()
-            .context("Failed to open in-memory SQLite database")?;
+        let conn =
+            Connection::open_in_memory().context("Failed to open in-memory SQLite database")?;
         let mgr = Self {
             conn: Mutex::new(conn),
             db_path: None,
@@ -249,7 +249,7 @@ impl HistoryManager {
 
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.extension().map_or(false, |ext| ext == "wav") {
+            if p.extension().is_some_and(|ext| ext == "wav") {
                 wav_files.push(p);
             }
         }
@@ -275,29 +275,33 @@ impl HistoryManager {
                 continue;
             }
 
-            if txt_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&txt_path) {
-                    let trimmed = content.trim();
-                    if !trimmed.is_empty() {
-                        // Find the oldest unlinked entry matching the trimmed text
-                        let target_id: Option<i64> = conn
-                            .query_row(
-                                "SELECT id FROM transcriptions
+            if txt_path.exists()
+                && let Ok(content) = std::fs::read_to_string(&txt_path)
+            {
+                let trimmed = content.trim();
+                if !trimmed.is_empty() {
+                    // Find the oldest unlinked entry matching the trimmed text
+                    let target_id: Option<i64> = conn
+                        .query_row(
+                            "SELECT id FROM transcriptions
                                  WHERE (audio_path IS NULL OR audio_path = '') AND TRIM(text) = ?1
                                  ORDER BY id ASC LIMIT 1",
-                                params![trimmed],
-                                |r| r.get(0),
-                            )
-                            .ok();
+                            params![trimmed],
+                            |r| r.get(0),
+                        )
+                        .ok();
 
-                        if let Some(id) = target_id {
-                            let _ = conn.execute(
-                                "UPDATE transcriptions SET audio_path = ?1 WHERE id = ?2",
-                                params![&wav_str, id],
-                            );
-                            tracing::info!("Backfilled audio_path for history entry #{}: {:?}", id, wav_str);
-                            linked += 1;
-                        }
+                    if let Some(id) = target_id {
+                        let _ = conn.execute(
+                            "UPDATE transcriptions SET audio_path = ?1 WHERE id = ?2",
+                            params![&wav_str, id],
+                        );
+                        tracing::info!(
+                            "Backfilled audio_path for history entry #{}: {:?}",
+                            id,
+                            wav_str
+                        );
+                        linked += 1;
                     }
                 }
             }
@@ -358,7 +362,8 @@ mod tests {
         assert_eq!(retrieved.audio_path.as_deref(), Some("/path/to/test.wav"));
 
         // Test backfill
-        let tmp_dir = std::env::temp_dir().join(format!("openwhisper_test_backfill_{}", std::process::id()));
+        let tmp_dir =
+            std::env::temp_dir().join(format!("openwhisper_test_backfill_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).unwrap();
         let wav_file = tmp_dir.join("whisper_20260907_120000.wav");
         let txt_file = tmp_dir.join("whisper_20260907_120000.txt");
@@ -373,7 +378,10 @@ mod tests {
         assert_eq!(count, 1);
 
         let linked_entry = mgr.get_by_id(unlinked_id).unwrap().unwrap();
-        assert_eq!(linked_entry.audio_path, Some(wav_file.to_string_lossy().to_string()));
+        assert_eq!(
+            linked_entry.audio_path,
+            Some(wav_file.to_string_lossy().to_string())
+        );
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
@@ -412,9 +420,12 @@ mod tests {
     #[test]
     fn test_history_search() {
         let mgr = HistoryManager::in_memory().expect("in-memory db");
-        mgr.record(&sample_entry("Meeting notes for Monday")).unwrap();
-        mgr.record(&sample_entry("Code review on Wayland text input")).unwrap();
-        mgr.record(&sample_entry("Call with team on Tuesday")).unwrap();
+        mgr.record(&sample_entry("Meeting notes for Monday"))
+            .unwrap();
+        mgr.record(&sample_entry("Code review on Wayland text input"))
+            .unwrap();
+        mgr.record(&sample_entry("Call with team on Tuesday"))
+            .unwrap();
 
         let results = mgr.search("Monday", 10).unwrap();
         assert_eq!(results.len(), 1);

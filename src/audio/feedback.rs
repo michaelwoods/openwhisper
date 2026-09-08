@@ -1,8 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
 use std::f32::consts::PI;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -176,10 +176,7 @@ pub fn play_wav_file_cancellable(
     }
 
     for cmd in ["pw-play", "paplay", "aplay"] {
-        if let Ok(mut child) = std::process::Command::new(cmd)
-            .arg(path)
-            .spawn()
-        {
+        if let Ok(mut child) = std::process::Command::new(cmd).arg(path).spawn() {
             while !stop_flag.load(Ordering::Relaxed) {
                 match child.try_wait() {
                     Ok(Some(status)) => {
@@ -272,7 +269,8 @@ fn play_wav_native_cancellable(
             let idx_floor = src_idx.floor() as usize;
             let frac = (src_idx - (idx_floor as f64)) as f32;
             let s = if idx_floor + 1 < wav_samples.len() {
-                wav_samples[idx_floor] + frac * (wav_samples[idx_floor + 1] - wav_samples[idx_floor])
+                wav_samples[idx_floor]
+                    + frac * (wav_samples[idx_floor + 1] - wav_samples[idx_floor])
             } else if idx_floor < wav_samples.len() {
                 wav_samples[idx_floor]
             } else {
@@ -350,9 +348,7 @@ pub fn generate_earcon_samples(earcon: EarconType, sample_rate: u32, volume: f32
             generate_frequency_sweep(660.0, 440.0, 0.050, sample_rate, volume)
         }
         // Confirmation blip (1000 Hz, 35ms)
-        EarconType::Transcribed => {
-            generate_sine_tone(1000.0, 0.035, sample_rate, volume)
-        }
+        EarconType::Transcribed => generate_sine_tone(1000.0, 0.035, sample_rate, volume),
         // Gentle descending cancel chime (440 Hz -> 260 Hz, 35ms each)
         EarconType::Cancel => {
             let tone1 = generate_sine_tone(440.0, 0.035, sample_rate, volume * 0.9);
@@ -459,7 +455,11 @@ mod tests {
             EarconType::Error,
         ] {
             let samples = generate_earcon_samples(earcon, sample_rate, volume);
-            assert!(!samples.is_empty(), "Earcon {:?} generated 0 samples", earcon);
+            assert!(
+                !samples.is_empty(),
+                "Earcon {:?} generated 0 samples",
+                earcon
+            );
 
             for &s in &samples {
                 assert!(

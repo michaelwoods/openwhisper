@@ -1,10 +1,10 @@
+use anyhow::Result;
+use chrono::{DateTime, Local};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use anyhow::Result;
-use chrono::{DateTime, Local};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::gui::{HistoryItem, HistoryWindow};
 use crate::history::{HistoryEntry, HistoryManager};
@@ -20,10 +20,10 @@ fn show_toast(win: &HistoryWindow, msg: &str, duration_secs: u64) {
     let win_weak = win.as_weak();
     let current_msg = msg.to_string();
     slint::Timer::single_shot(Duration::from_secs(duration_secs), move || {
-        if let Some(w) = win_weak.upgrade() {
-            if w.get_toast_text().as_str() == current_msg {
-                w.set_toast_text(SharedString::default());
-            }
+        if let Some(w) = win_weak.upgrade()
+            && w.get_toast_text().as_str() == current_msg
+        {
+            w.set_toast_text(SharedString::default());
         }
     });
 }
@@ -42,7 +42,7 @@ fn entry_to_item(entry: &HistoryEntry) -> HistoryItem {
     let has_audio = entry
         .audio_path
         .as_ref()
-        .map_or(false, |p| std::path::Path::new(p).exists());
+        .is_some_and(|p| std::path::Path::new(p).exists());
 
     let meta = format!(
         "{:.1}s • {} chars • {}{}",
@@ -175,12 +175,13 @@ pub fn run_history_gui(history_mgr: Arc<HistoryManager>) -> Result<()> {
                         let active_pb_bg = Arc::clone(&active_pb);
 
                         std::thread::spawn(move || {
-                            let completed = crate::audio::play_wav_file_cancellable(&path_buf, stop_flag)
-                                .unwrap_or(false);
+                            let completed =
+                                crate::audio::play_wav_file_cancellable(&path_buf, stop_flag)
+                                    .unwrap_or(false);
 
                             let _ = win_weak_bg.upgrade_in_event_loop(move |win| {
                                 let mut pb = active_pb_bg.lock().unwrap();
-                                let is_current = pb.as_ref().map_or(false, |a| a.id == id);
+                                let is_current = pb.as_ref().is_some_and(|a| a.id == id);
                                 if is_current {
                                     *pb = None;
                                     win.set_playing_id(-1);
@@ -232,21 +233,21 @@ pub fn run_history_gui(history_mgr: Arc<HistoryManager>) -> Result<()> {
             };
 
             let mut pb = active_pb.lock().unwrap();
-            if let Some(active) = pb.as_ref() {
-                if active.id == id {
-                    active.stop_flag.store(true, Ordering::SeqCst);
-                    *pb = None;
-                    win.set_playing_id(-1);
-                }
+            if let Some(active) = pb.as_ref()
+                && active.id == id
+            {
+                active.stop_flag.store(true, Ordering::SeqCst);
+                *pb = None;
+                win.set_playing_id(-1);
             }
             drop(pb);
 
-            if let Ok(deleted) = mgr.delete(id as i64) {
-                if deleted {
-                    show_toast(&win, "Entry deleted", 3);
-                    let q = win.get_search_query();
-                    reload_cb(q.as_str());
-                }
+            if let Ok(deleted) = mgr.delete(id as i64)
+                && deleted
+            {
+                show_toast(&win, "Entry deleted", 3);
+                let q = win.get_search_query();
+                reload_cb(q.as_str());
             }
         });
     }
@@ -323,4 +324,3 @@ mod tests {
         assert!(!ts.is_empty());
     }
 }
-

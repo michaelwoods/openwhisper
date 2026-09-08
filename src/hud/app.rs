@@ -75,35 +75,42 @@ impl eframe::App for HudApp {
             let lock = self.controller.model();
             let model = lock.read().unwrap();
             let alpha = model.calculate_alpha(now);
-            (model.state.clone(), model.smoothed_rms, alpha, model.position)
+            (
+                model.state.clone(),
+                model.smoothed_rms,
+                alpha,
+                model.position,
+            )
         };
 
         // Screen position calculation based on monitor size
-        if let Some(monitor_size) = ui.ctx().input(|i| i.viewport().monitor_size) {
-            if monitor_size.x > 100.0 && monitor_size.y > 100.0 {
-                let win_w = 290.0;
-                let win_h = 48.0;
-                let margin_y = 60.0;
-                let margin_x = 40.0;
-                let (x, y) = match position {
-                    crate::config::HudPosition::BottomCenter => {
-                        ((monitor_size.x - win_w) / 2.0, monitor_size.y - win_h - margin_y)
-                    }
-                    crate::config::HudPosition::TopCenter => {
-                        ((monitor_size.x - win_w) / 2.0, margin_y)
-                    }
-                    crate::config::HudPosition::BottomRight => {
-                        (monitor_size.x - win_w - margin_x, monitor_size.y - win_h - margin_y)
-                    }
-                    crate::config::HudPosition::TopRight => {
-                        (monitor_size.x - win_w - margin_x, margin_y)
-                    }
-                };
-                let target_pos = Pos2::new(x, y);
-                if self.last_pos != Some(target_pos) {
-                    self.last_pos = Some(target_pos);
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::OuterPosition(target_pos));
+        if let Some(monitor_size) = ui.ctx().input(|i| i.viewport().monitor_size)
+            && monitor_size.x > 100.0
+            && monitor_size.y > 100.0
+        {
+            let win_w = 290.0;
+            let win_h = 48.0;
+            let margin_y = 60.0;
+            let margin_x = 40.0;
+            let (x, y) = match position {
+                crate::config::HudPosition::BottomCenter => (
+                    (monitor_size.x - win_w) / 2.0,
+                    monitor_size.y - win_h - margin_y,
+                ),
+                crate::config::HudPosition::TopCenter => ((monitor_size.x - win_w) / 2.0, margin_y),
+                crate::config::HudPosition::BottomRight => (
+                    monitor_size.x - win_w - margin_x,
+                    monitor_size.y - win_h - margin_y,
+                ),
+                crate::config::HudPosition::TopRight => {
+                    (monitor_size.x - win_w - margin_x, margin_y)
                 }
+            };
+            let target_pos = Pos2::new(x, y);
+            if self.last_pos != Some(target_pos) {
+                self.last_pos = Some(target_pos);
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::OuterPosition(target_pos));
             }
         }
 
@@ -121,18 +128,22 @@ impl eframe::App for HudApp {
         // Background color and subtle border glow
         let bg_color = Color32::from_rgba_unmultiplied(15, 23, 42, (230.0 * alpha) as u8);
         let border_stroke = match &state {
-            HudState::Recording { .. } => {
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(239, 68, 68, (140.0 * alpha) as u8))
-            }
-            HudState::Transcribing { .. } => {
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(56, 189, 248, (140.0 * alpha) as u8))
-            }
-            HudState::Completed { .. } => {
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(34, 197, 94, (140.0 * alpha) as u8))
-            }
-            HudState::Error { .. } => {
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(245, 158, 11, (140.0 * alpha) as u8))
-            }
+            HudState::Recording { .. } => Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(239, 68, 68, (140.0 * alpha) as u8),
+            ),
+            HudState::Transcribing { .. } => Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(56, 189, 248, (140.0 * alpha) as u8),
+            ),
+            HudState::Completed { .. } => Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(34, 197, 94, (140.0 * alpha) as u8),
+            ),
+            HudState::Error { .. } => Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(245, 158, 11, (140.0 * alpha) as u8),
+            ),
             HudState::Idle => Stroke::NONE,
         };
 
@@ -145,10 +156,18 @@ impl eframe::App for HudApp {
                 let elapsed = now.saturating_duration_since(started_at);
                 let elapsed_secs = elapsed.as_secs();
                 let elapsed_millis = (elapsed.subsec_millis()) / 100;
-                let timer_text = format!("{:02}:{:02}.{}", elapsed_secs / 60, elapsed_secs % 60, elapsed_millis);
+                let timer_text = format!(
+                    "{:02}:{:02}.{}",
+                    elapsed_secs / 60,
+                    elapsed_secs % 60,
+                    elapsed_millis
+                );
 
                 // Pulsing red recording dot
-                let pulse = (now.saturating_duration_since(self.start_time).as_secs_f32() * 5.0).sin() * 0.5 + 0.5;
+                let pulse = (now.saturating_duration_since(self.start_time).as_secs_f32() * 5.0)
+                    .sin()
+                    * 0.5
+                    + 0.5;
                 let glow_radius = 4.0 + pulse * 2.0;
                 let dot_center = Pos2::new(rect.min.x + 18.0, center_y);
 
@@ -187,7 +206,12 @@ impl eframe::App for HudApp {
                 let bar_spacing = 3.0;
 
                 for i in 0..5 {
-                    let phase = (now.saturating_duration_since(self.start_time).as_secs_f32() * 9.0 + i as f32 * 0.85).sin() * 0.5 + 0.5;
+                    let phase = (now.saturating_duration_since(self.start_time).as_secs_f32()
+                        * 9.0
+                        + i as f32 * 0.85)
+                        .sin()
+                        * 0.5
+                        + 0.5;
                     let height = 4.0 + (smoothed_rms * 16.0 * (0.6 + 0.4 * phase)).clamp(0.0, 18.0);
                     let bar_x = bar_start_x + i as f32 * (bar_width + bar_spacing);
                     let bar_rect = Rect::from_min_max(
@@ -234,19 +258,26 @@ impl eframe::App for HudApp {
                 // Wave progress dots
                 let dots_start_x = rect.max.x - 55.0;
                 for i in 0..4 {
-                    let dot_pulse = ((elapsed * 4.0 - i as f32 * 0.5).sin() * 0.5 + 0.5).clamp(0.2, 1.0);
+                    let dot_pulse =
+                        ((elapsed * 4.0 - i as f32 * 0.5).sin() * 0.5 + 0.5).clamp(0.2, 1.0);
                     let x = dots_start_x + i as f32 * 10.0;
                     painter.circle_filled(
                         Pos2::new(x, center_y),
                         2.5 * dot_pulse,
-                        Color32::from_rgba_unmultiplied(56, 189, 248, (220.0 * dot_pulse * alpha) as u8),
+                        Color32::from_rgba_unmultiplied(
+                            56,
+                            189,
+                            248,
+                            (220.0 * dot_pulse * alpha) as u8,
+                        ),
                     );
                 }
             }
 
             HudState::Completed { text_preview, .. } => {
                 // Crisp antialiased vector checkmark (zero font dependency)
-                let check_color = Color32::from_rgba_unmultiplied(34, 197, 94, (255.0 * alpha) as u8);
+                let check_color =
+                    Color32::from_rgba_unmultiplied(34, 197, 94, (255.0 * alpha) as u8);
                 let p_start = Pos2::new(rect.min.x + 13.0, center_y);
                 let p_mid = Pos2::new(rect.min.x + 17.0, center_y + 4.0);
                 let p_end = Pos2::new(rect.min.x + 23.0, center_y - 4.0);
@@ -266,11 +297,15 @@ impl eframe::App for HudApp {
 
             HudState::Error { message, .. } => {
                 // Crisp antialiased vector warning sign (zero font dependency)
-                let warn_color = Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * alpha) as u8);
+                let warn_color =
+                    Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * alpha) as u8);
                 let warn_center = Pos2::new(rect.min.x + 18.0, center_y);
                 painter.circle_stroke(warn_center, 6.5, Stroke::new(1.5, warn_color));
                 painter.line_segment(
-                    [Pos2::new(warn_center.x, warn_center.y - 3.0), Pos2::new(warn_center.x, warn_center.y + 0.5)],
+                    [
+                        Pos2::new(warn_center.x, warn_center.y - 3.0),
+                        Pos2::new(warn_center.x, warn_center.y + 0.5),
+                    ],
                     Stroke::new(1.6, warn_color),
                 );
                 painter.circle_filled(

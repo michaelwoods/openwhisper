@@ -11,7 +11,8 @@ const TRAY_IDLE_ICON: &str = include_str!("../assets/icons/openwhisper-tray-idle
 #[cfg(target_os = "linux")]
 const TRAY_RECORDING_ICON: &str = include_str!("../assets/icons/openwhisper-tray-recording.svg");
 #[cfg(target_os = "linux")]
-const TRAY_TRANSCRIBING_ICON: &str = include_str!("../assets/icons/openwhisper-tray-transcribing.svg");
+const TRAY_TRANSCRIBING_ICON: &str =
+    include_str!("../assets/icons/openwhisper-tray-transcribing.svg");
 #[cfg(target_os = "linux")]
 const TRAY_DEGRADED_ICON: &str = include_str!("../assets/icons/openwhisper-tray-degraded.svg");
 #[cfg(target_os = "linux")]
@@ -117,11 +118,26 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
     }
 
     let _ = fs::write(apps_icon_dir.join("openwhisper.svg"), APP_ICON);
-    let _ = fs::write(status_icon_dir.join("openwhisper-tray-idle.svg"), TRAY_IDLE_ICON);
-    let _ = fs::write(status_icon_dir.join("openwhisper-tray-recording.svg"), TRAY_RECORDING_ICON);
-    let _ = fs::write(status_icon_dir.join("openwhisper-tray-transcribing.svg"), TRAY_TRANSCRIBING_ICON);
-    let _ = fs::write(status_icon_dir.join("openwhisper-tray-degraded.svg"), TRAY_DEGRADED_ICON);
-    let _ = fs::write(status_icon_dir.join("openwhisper-tray-error.svg"), TRAY_ERROR_ICON);
+    let _ = fs::write(
+        status_icon_dir.join("openwhisper-tray-idle.svg"),
+        TRAY_IDLE_ICON,
+    );
+    let _ = fs::write(
+        status_icon_dir.join("openwhisper-tray-recording.svg"),
+        TRAY_RECORDING_ICON,
+    );
+    let _ = fs::write(
+        status_icon_dir.join("openwhisper-tray-transcribing.svg"),
+        TRAY_TRANSCRIBING_ICON,
+    );
+    let _ = fs::write(
+        status_icon_dir.join("openwhisper-tray-degraded.svg"),
+        TRAY_DEGRADED_ICON,
+    );
+    let _ = fs::write(
+        status_icon_dir.join("openwhisper-tray-error.svg"),
+        TRAY_ERROR_ICON,
+    );
     let _ = fs::write(pixmaps_dir.join("openwhisper.svg"), APP_ICON);
 
     let convert_cmd = if has_command_in_path("magick") {
@@ -155,8 +171,14 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
     println!("🖥️  Step 3: Registering desktop entries...");
     let app_dir = home.join(".local/share/applications");
     let _ = fs::create_dir_all(&app_dir);
-    let _ = fs::write(app_dir.join("net.local.openwhisper.desktop"), TOGGLE_DESKTOP);
-    let _ = fs::write(app_dir.join("net.local.openwhisper.settings.desktop"), SETTINGS_DESKTOP);
+    let _ = fs::write(
+        app_dir.join("net.local.openwhisper.desktop"),
+        TOGGLE_DESKTOP,
+    );
+    let _ = fs::write(
+        app_dir.join("net.local.openwhisper.settings.desktop"),
+        SETTINGS_DESKTOP,
+    );
     println!("   ✓ Registered net.local.openwhisper.desktop (Dictation Toggle shortcut)");
     println!("   ✓ Registered net.local.openwhisper.settings.desktop (Settings GUI panel)");
 
@@ -227,13 +249,28 @@ fn configure_kwin_rules() {
 
     for (key, val) in rules_to_set {
         let _ = std::process::Command::new(write_cmd)
-            .args(["--file", "kwinrulesrc", "--group", "openwhisper_hud", "--key", key, val])
+            .args([
+                "--file",
+                "kwinrulesrc",
+                "--group",
+                "openwhisper_hud",
+                "--key",
+                key,
+                val,
+            ])
             .output();
     }
 
     // Ensure openwhisper_hud is in the active rules list in [General]
     let current_rules_output = std::process::Command::new(read_cmd)
-        .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules"])
+        .args([
+            "--file",
+            "kwinrulesrc",
+            "--group",
+            "General",
+            "--key",
+            "rules",
+        ])
         .output();
 
     let existing_rules = current_rules_output
@@ -243,9 +280,7 @@ fn configure_kwin_rules() {
     let existing_rules = existing_rules.trim();
 
     let rule_name = "openwhisper_hud";
-    let is_present = existing_rules
-        .split(',')
-        .any(|r| r.trim() == rule_name);
+    let is_present = existing_rules.split(',').any(|r| r.trim() == rule_name);
 
     if !is_present {
         let updated_rules = if existing_rules.is_empty() {
@@ -254,7 +289,15 @@ fn configure_kwin_rules() {
             format!("{existing_rules},{rule_name}")
         };
         let _ = std::process::Command::new(write_cmd)
-            .args(["--file", "kwinrulesrc", "--group", "General", "--key", "rules", &updated_rules])
+            .args([
+                "--file",
+                "kwinrulesrc",
+                "--group",
+                "General",
+                "--key",
+                "rules",
+                &updated_rules,
+            ])
             .output();
     }
 
@@ -277,7 +320,9 @@ fn configure_kwin_rules() {
     let cfg = crate::config::Config::load().unwrap_or_default();
     sync_kwin_hud_position(cfg.hud_position);
 
-    println!("   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above & screen position forced for Wayland)");
+    println!(
+        "   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above & screen position forced for Wayland)"
+    );
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -300,21 +345,24 @@ fn strip_ansi(s: &str) -> String {
 #[cfg(target_os = "linux")]
 pub fn detect_screen_geometry() -> (i32, i32) {
     // 1. Try kscreen-doctor on KDE Wayland
-    if let Ok(output) = std::process::Command::new("kscreen-doctor").arg("-o").output() {
-        if let Ok(text) = String::from_utf8(output.stdout) {
-            for line in text.lines() {
-                if line.contains("Geometry:") {
-                    let clean = strip_ansi(line);
-                    for token in clean.split_whitespace() {
-                        if token.contains('x') && !token.contains('@') && !token.contains(',') {
-                            let parts: Vec<&str> = token.split('x').collect();
-                            if parts.len() == 2 {
-                                if let (Ok(w), Ok(h)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
-                                    if w >= 400 && h >= 300 {
-                                        return (w, h);
-                                    }
-                                }
-                            }
+    if let Ok(output) = std::process::Command::new("kscreen-doctor")
+        .arg("-o")
+        .output()
+        && let Ok(text) = String::from_utf8(output.stdout)
+    {
+        for line in text.lines() {
+            if line.contains("Geometry:") {
+                let clean = strip_ansi(line);
+                for token in clean.split_whitespace() {
+                    if token.contains('x') && !token.contains('@') && !token.contains(',') {
+                        let parts: Vec<&str> = token.split('x').collect();
+                        if parts.len() == 2
+                            && let (Ok(w), Ok(h)) =
+                                (parts[0].parse::<i32>(), parts[1].parse::<i32>())
+                            && w >= 400
+                            && h >= 300
+                        {
+                            return (w, h);
                         }
                     }
                 }
@@ -323,20 +371,21 @@ pub fn detect_screen_geometry() -> (i32, i32) {
     }
 
     // 2. Fallback: xrandr
-    if let Ok(output) = std::process::Command::new("xrandr").arg("--current").output() {
-        if let Ok(text) = String::from_utf8(output.stdout) {
-            for line in text.lines() {
-                if line.contains(" connected") {
-                    for token in line.split_whitespace() {
-                        if let Some((geom, _)) = token.split_once('+') {
-                            if let Some((w_str, h_str)) = geom.split_once('x') {
-                                if let (Ok(w), Ok(h)) = (w_str.parse::<i32>(), h_str.parse::<i32>()) {
-                                    if w >= 400 && h >= 300 {
-                                        return (w, h);
-                                    }
-                                }
-                            }
-                        }
+    if let Ok(output) = std::process::Command::new("xrandr")
+        .arg("--current")
+        .output()
+        && let Ok(text) = String::from_utf8(output.stdout)
+    {
+        for line in text.lines() {
+            if line.contains(" connected") {
+                for token in line.split_whitespace() {
+                    if let Some((geom, _)) = token.split_once('+')
+                        && let Some((w_str, h_str)) = geom.split_once('x')
+                        && let (Ok(w), Ok(h)) = (w_str.parse::<i32>(), h_str.parse::<i32>())
+                        && w >= 400
+                        && h >= 300
+                    {
+                        return (w, h);
                     }
                 }
             }
@@ -368,24 +417,36 @@ pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
         crate::config::HudPosition::BottomCenter => {
             ((screen_w - win_w) / 2, screen_h - win_h - margin_y)
         }
-        crate::config::HudPosition::TopCenter => {
-            ((screen_w - win_w) / 2, margin_y)
-        }
+        crate::config::HudPosition::TopCenter => ((screen_w - win_w) / 2, margin_y),
         crate::config::HudPosition::BottomRight => {
             (screen_w - win_w - margin_x, screen_h - win_h - margin_y)
         }
-        crate::config::HudPosition::TopRight => {
-            (screen_w - win_w - margin_x, margin_y)
-        }
+        crate::config::HudPosition::TopRight => (screen_w - win_w - margin_x, margin_y),
     };
 
     let pos_str = format!("{x},{y}");
     let _ = std::process::Command::new(write_cmd)
-        .args(["--file", "kwinrulesrc", "--group", "openwhisper_hud", "--key", "position", &pos_str])
+        .args([
+            "--file",
+            "kwinrulesrc",
+            "--group",
+            "openwhisper_hud",
+            "--key",
+            "position",
+            &pos_str,
+        ])
         .output();
 
     let _ = std::process::Command::new(write_cmd)
-        .args(["--file", "kwinrulesrc", "--group", "openwhisper_hud", "--key", "positionrule", "2"])
+        .args([
+            "--file",
+            "kwinrulesrc",
+            "--group",
+            "openwhisper_hud",
+            "--key",
+            "positionrule",
+            "2",
+        ])
         .output();
 
     let qdbus_cmd = if has_command_in_path("qdbus-qt6") {
@@ -420,12 +481,18 @@ fn install_linux_systemd(home: &Path) -> Result<()> {
         let _ = reload_cmd.output();
 
         let mut enable_cmd = std::process::Command::new("systemctl");
-        enable_cmd.arg("--user").arg("enable").arg("openwhisper.service");
+        enable_cmd
+            .arg("--user")
+            .arg("enable")
+            .arg("openwhisper.service");
         apply_systemd_env(&mut enable_cmd);
         let _ = enable_cmd.output();
 
         let mut restart_cmd = std::process::Command::new("systemctl");
-        restart_cmd.arg("--user").arg("restart").arg("openwhisper.service");
+        restart_cmd
+            .arg("--user")
+            .arg("restart")
+            .arg("openwhisper.service");
         apply_systemd_env(&mut restart_cmd);
         let _ = restart_cmd.output();
 
@@ -465,4 +532,3 @@ mod tests {
         assert!(h >= 480);
     }
 }
-

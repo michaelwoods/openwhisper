@@ -97,12 +97,11 @@ impl VadDetector {
                     .map(|t| now.duration_since(t))
                     .unwrap_or_default();
 
-                if speech_dur >= self.config.min_speech_duration {
-                    if let Some(last_speech) = self.last_speech_time {
-                        if now.duration_since(last_speech) >= self.config.silence_timeout {
-                            return VadDecision::SilenceTimeout;
-                        }
-                    }
+                if speech_dur >= self.config.min_speech_duration
+                    && let Some(last_speech) = self.last_speech_time
+                    && now.duration_since(last_speech) >= self.config.silence_timeout
+                {
+                    return VadDecision::SilenceTimeout;
                 }
             }
             VadDecision::Continue

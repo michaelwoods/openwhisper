@@ -142,7 +142,9 @@ impl HudModel {
     #[allow(dead_code)]
     pub fn elapsed_recording_duration(&self, now: Instant) -> Option<Duration> {
         match &self.state {
-            HudState::Recording { started_at, .. } => Some(now.saturating_duration_since(*started_at)),
+            HudState::Recording { started_at, .. } => {
+                Some(now.saturating_duration_since(*started_at))
+            }
             _ => None,
         }
     }
@@ -169,10 +171,10 @@ impl HudController {
     }
 
     pub fn request_repaint(&self) {
-        if let Ok(lock) = self.ctx.read() {
-            if let Some(ctx) = &*lock {
-                ctx.request_repaint();
-            }
+        if let Ok(lock) = self.ctx.read()
+            && let Some(ctx) = &*lock
+        {
+            ctx.request_repaint();
         }
     }
 
@@ -249,7 +251,9 @@ pub fn start_hud_service(enabled: bool, position: HudPosition) -> HudController 
 
     let has_display = std::env::var("WAYLAND_DISPLAY").is_ok() || std::env::var("DISPLAY").is_ok();
     if !has_display {
-        tracing::info!("No graphical display server found (WAYLAND_DISPLAY / DISPLAY unset). Running without HUD overlay.");
+        tracing::info!(
+            "No graphical display server found (WAYLAND_DISPLAY / DISPLAY unset). Running without HUD overlay."
+        );
         return controller;
     }
 
@@ -305,12 +309,11 @@ pub fn run_hud_demo(once: bool) -> anyhow::Result<()> {
             std::thread::sleep(Duration::from_millis(800));
         }
 
-        if once {
-            if let Ok(lock) = ctrl_demo.ctx.read() {
-                if let Some(ctx) = &*lock {
-                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close);
-                }
-            }
+        if once
+            && let Ok(lock) = ctrl_demo.ctx.read()
+            && let Some(ctx) = &*lock
+        {
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close);
         }
     });
 
@@ -341,7 +344,10 @@ mod tests {
         assert_eq!(model.calculate_alpha(Instant::now()), 1.0);
 
         model.set_completed("hello world from whisper dictation assistant test");
-        if let HudState::Completed { ref text_preview, .. } = model.state {
+        if let HudState::Completed {
+            ref text_preview, ..
+        } = model.state
+        {
             assert!(text_preview.contains("hello world"));
         } else {
             panic!("Expected Completed state");
@@ -375,7 +381,11 @@ mod tests {
         let t0 = Instant::now();
 
         model.set_completed("Test text");
-        if let HudState::Completed { ref mut completed_at, .. } = model.state {
+        if let HudState::Completed {
+            ref mut completed_at,
+            ..
+        } = model.state
+        {
             *completed_at = t0;
         }
 
@@ -409,7 +419,11 @@ mod tests {
         let t0 = Instant::now();
 
         model.set_error("Connection timeout");
-        if let HudState::Error { ref mut error_at, ref message } = model.state {
+        if let HudState::Error {
+            ref mut error_at,
+            ref message,
+        } = model.state
+        {
             assert_eq!(message, "Connection timeout");
             *error_at = t0;
         }
@@ -437,11 +451,16 @@ mod tests {
 
         let t0 = Instant::now();
         model.set_recording();
-        if let HudState::Recording { ref mut started_at, .. } = model.state {
+        if let HudState::Recording {
+            ref mut started_at, ..
+        } = model.state
+        {
             *started_at = t0;
         }
 
-        let elapsed = model.elapsed_recording_duration(t0 + Duration::from_secs(3)).unwrap();
+        let elapsed = model
+            .elapsed_recording_duration(t0 + Duration::from_secs(3))
+            .unwrap();
         assert_eq!(elapsed.as_secs(), 3);
     }
 

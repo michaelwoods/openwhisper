@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "linux")]
 use std::collections::HashSet;
@@ -41,7 +41,10 @@ impl Drop for EvdevListenerHandle {
 }
 
 #[cfg(target_os = "linux")]
-pub fn start_evdev_listener(key_name: &str, cmd_tx: Sender<IpcCommand>) -> Option<EvdevListenerHandle> {
+pub fn start_evdev_listener(
+    key_name: &str,
+    cmd_tx: Sender<IpcCommand>,
+) -> Option<EvdevListenerHandle> {
     let target_key = match crate::config::parse_evdev_key(key_name) {
         Some(k) => k,
         None => {
@@ -94,21 +97,19 @@ fn scan_and_attach_devices(
     running: &Arc<AtomicBool>,
     cmd_tx: &Sender<IpcCommand>,
 ) {
-    let devices = match evdev::enumerate() {
-        iter => iter,
-    };
+    let devices = evdev::enumerate();
 
     for (path, device) in devices {
         // Exclude our own virtual keyboard injector to avoid loopback
-        if let Some(name) = device.name() {
-            if name.contains("OpenWhisper") {
-                continue;
-            }
+        if let Some(name) = device.name()
+            && name.contains("OpenWhisper")
+        {
+            continue;
         }
 
         let is_candidate = device
             .supported_keys()
-            .map_or(false, |keys| keys.contains(target_key));
+            .is_some_and(|keys| keys.contains(target_key));
 
         if !is_candidate {
             continue;
@@ -139,7 +140,13 @@ fn scan_and_attach_devices(
         let thread_cmd_tx = cmd_tx.clone();
         let thread_path = path.clone();
 
-        let builder = thread::Builder::new().name(format!("evdev-{}", thread_path.file_name().and_then(|f| f.to_str()).unwrap_or("kbd")));
+        let builder = thread::Builder::new().name(format!(
+            "evdev-{}",
+            thread_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("kbd")
+        ));
         let spawn_res = builder.spawn(move || {
             read_device_events(
                 device,
@@ -177,11 +184,21 @@ fn read_device_events(
                         if ev.code() == target_key.code() {
                             match ev.value() {
                                 1 => {
-                                    tracing::info!("evdev hotkey {:?} (code {}) pressed on {:?}", target_key, target_key.code(), path);
+                                    tracing::info!(
+                                        "evdev hotkey {:?} (code {}) pressed on {:?}",
+                                        target_key,
+                                        target_key.code(),
+                                        path
+                                    );
                                     let _ = cmd_tx.blocking_send(IpcCommand::PttDown);
                                 }
                                 0 => {
-                                    tracing::info!("evdev hotkey {:?} (code {}) released on {:?}", target_key, target_key.code(), path);
+                                    tracing::info!(
+                                        "evdev hotkey {:?} (code {}) released on {:?}",
+                                        target_key,
+                                        target_key.code(),
+                                        path
+                                    );
                                     let _ = cmd_tx.blocking_send(IpcCommand::PttUp);
                                 }
                                 2 => {
@@ -190,7 +207,10 @@ fn read_device_events(
                                 _ => {}
                             }
                         } else if ev.code() == Key::KEY_ESC.code() && ev.value() == 1 {
-                            tracing::info!("Physical KEY_ESC pressed on {:?}: sending cancel command", path);
+                            tracing::info!(
+                                "Physical KEY_ESC pressed on {:?}: sending cancel command",
+                                path
+                            );
                             let _ = cmd_tx.blocking_send(IpcCommand::Cancel);
                         }
                     }
@@ -214,17 +234,19 @@ pub fn run_test_hotkey() -> anyhow::Result<()> {
     use std::time::Instant;
 
     println!("🔍 Monitoring /dev/input keyboard devices in real-time...");
-    println!("👉 Press, hold, and release your Fn+F9 key (or any other key) to inspect its hardware behavior.");
+    println!(
+        "👉 Press, hold, and release your Fn+F9 key (or any other key) to inspect its hardware behavior."
+    );
     println!("Press Ctrl+C to exit.\n");
 
     let devices = evdev::enumerate();
     let start_time = Instant::now();
 
     for (_path, mut device) in devices {
-        if let Some(name) = device.name() {
-            if name.contains("OpenWhisper") {
-                continue;
-            }
+        if let Some(name) = device.name()
+            && name.contains("OpenWhisper")
+        {
+            continue;
         }
 
         if device.supported_keys().is_none() {
@@ -245,20 +267,31 @@ pub fn run_test_hotkey() -> anyhow::Result<()> {
                                 last_press = Some(Instant::now());
                                 println!(
                                     "[{:.3}s] [{}] Pressed: {:?} (code {})",
-                                    elapsed_total, dev_name, key, ev.code()
+                                    elapsed_total,
+                                    dev_name,
+                                    key,
+                                    ev.code()
                                 );
                             }
                             0 => {
-                                let hold_ms = last_press.map(|t| t.elapsed().as_millis()).unwrap_or(0);
+                                let hold_ms =
+                                    last_press.map(|t| t.elapsed().as_millis()).unwrap_or(0);
                                 println!(
                                     "[{:.3}s] [{}] Released: {:?} (code {}) after {}ms hold",
-                                    elapsed_total, dev_name, key, ev.code(), hold_ms
+                                    elapsed_total,
+                                    dev_name,
+                                    key,
+                                    ev.code(),
+                                    hold_ms
                                 );
                             }
                             2 => {
                                 println!(
                                     "[{:.3}s] [{}] Repeat: {:?} (code {})",
-                                    elapsed_total, dev_name, key, ev.code()
+                                    elapsed_total,
+                                    dev_name,
+                                    key,
+                                    ev.code()
                                 );
                             }
                             _ => {}
@@ -294,10 +327,10 @@ pub fn sniff_single_key(timeout: Duration) -> Option<String> {
     let mut spawned = false;
 
     for (_path, mut device) in devices {
-        if let Some(name) = device.name() {
-            if name.contains("OpenWhisper") {
-                continue;
-            }
+        if let Some(name) = device.name()
+            && name.contains("OpenWhisper")
+        {
+            continue;
         }
         if device.supported_keys().is_none() {
             continue;
@@ -341,7 +374,10 @@ pub fn sniff_single_key(_timeout: Duration) -> Option<String> {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn start_evdev_listener(_key_name: &str, _cmd_tx: tokio::sync::mpsc::Sender<IpcCommand>) -> Option<EvdevListenerHandle> {
+pub fn start_evdev_listener(
+    _key_name: &str,
+    _cmd_tx: tokio::sync::mpsc::Sender<IpcCommand>,
+) -> Option<EvdevListenerHandle> {
     None
 }
 
@@ -352,7 +388,9 @@ mod tests {
     #[test]
     fn test_handle_lifecycle() {
         let running = Arc::new(AtomicBool::new(true));
-        let handle = EvdevListenerHandle { running: running.clone() };
+        let handle = EvdevListenerHandle {
+            running: running.clone(),
+        };
         assert!(handle.is_running());
         handle.stop();
         assert!(!handle.is_running());

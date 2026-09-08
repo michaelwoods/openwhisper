@@ -25,7 +25,11 @@ pub fn build_whisper_prompt(vocabulary: &[String], custom_prompt: Option<&str>) 
     match (clean_prompt, !clean_vocab.is_empty()) {
         (Some(prompt), true) => {
             let p = prompt.trim_end_matches('.');
-            Some(format!("{}. Technical vocabulary: {}.", p, clean_vocab.join(", ")))
+            Some(format!(
+                "{}. Technical vocabulary: {}.",
+                p,
+                clean_vocab.join(", ")
+            ))
         }
         (Some(prompt), false) => Some(prompt.to_string()),
         (None, true) => Some(format!("Technical vocabulary: {}.", clean_vocab.join(", "))),
@@ -165,18 +169,36 @@ mod tests {
     fn test_format_standard() {
         let input = "  Hello, world!  ";
         // Default with trailing space
-        assert_eq!(format_transcription(input, FormattingMode::Standard, true), "Hello, world! ");
+        assert_eq!(
+            format_transcription(input, FormattingMode::Standard, true),
+            "Hello, world! "
+        );
         // Without trailing space
-        assert_eq!(format_transcription(input, FormattingMode::Standard, false), "Hello, world!");
+        assert_eq!(
+            format_transcription(input, FormattingMode::Standard, false),
+            "Hello, world!"
+        );
         // Does not duplicate existing trailing space
-        assert_eq!(format_transcription("Hello, world! ", FormattingMode::Standard, true), "Hello, world! ");
+        assert_eq!(
+            format_transcription("Hello, world! ", FormattingMode::Standard, true),
+            "Hello, world! "
+        );
     }
 
     #[test]
     fn test_format_raw() {
-        assert_eq!(format_transcription("Hello world.", FormattingMode::Raw, true), "Hello world ");
-        assert_eq!(format_transcription("Hello world.", FormattingMode::Raw, false), "Hello world");
-        assert_eq!(format_transcription("Is this real?!", FormattingMode::Raw, true), "Is this real ");
+        assert_eq!(
+            format_transcription("Hello world.", FormattingMode::Raw, true),
+            "Hello world "
+        );
+        assert_eq!(
+            format_transcription("Hello world.", FormattingMode::Raw, false),
+            "Hello world"
+        );
+        assert_eq!(
+            format_transcription("Is this real?!", FormattingMode::Raw, true),
+            "Is this real "
+        );
     }
 
     #[test]
@@ -213,7 +235,13 @@ mod tests {
 
     #[test]
     fn test_format_empty() {
-        assert_eq!(format_transcription("   ", FormattingMode::SnakeCase, true), "");
-        assert_eq!(format_transcription("", FormattingMode::CamelCase, false), "");
+        assert_eq!(
+            format_transcription("   ", FormattingMode::SnakeCase, true),
+            ""
+        );
+        assert_eq!(
+            format_transcription("", FormattingMode::CamelCase, false),
+            ""
+        );
     }
 }

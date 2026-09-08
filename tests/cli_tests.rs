@@ -54,7 +54,8 @@ fn test_cli_status_runs_without_panic() {
             || combined.contains("ok")
             || combined.contains("Status")
             || combined.contains("Error"),
-        "Unexpected status output: {}", combined
+        "Unexpected status output: {}",
+        combined
     );
 }
 

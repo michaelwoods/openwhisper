@@ -1,10 +1,10 @@
-use anyhow::{bail, Context, Result};
-use reqwest::multipart::{Form, Part};
+use anyhow::{Context, Result, bail};
 use reqwest::Client;
+use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 use std::time::Duration;
 
-use super::formatting::{build_whisper_prompt, format_transcription, FormattingMode};
+use super::formatting::{FormattingMode, build_whisper_prompt, format_transcription};
 use crate::config::Config;
 
 #[derive(Debug, Clone)]
@@ -101,10 +101,10 @@ impl TranscriptionClient {
 
         let mut request = self.client.post(&self.server_url).multipart(form);
 
-        if let Some(ref key) = self.api_key {
-            if !key.trim().is_empty() {
-                request = request.bearer_auth(key);
-            }
+        if let Some(ref key) = self.api_key
+            && !key.trim().is_empty()
+        {
+            request = request.bearer_auth(key);
         }
 
         let response = request
@@ -131,7 +131,11 @@ impl TranscriptionClient {
 }
 
 /// Parses the JSON response body from an OpenAI-compatible STT endpoint and formats the output.
-pub fn parse_transcription_response(body_text: &str, mode: FormattingMode, trailing_space: bool) -> Result<String> {
+pub fn parse_transcription_response(
+    body_text: &str,
+    mode: FormattingMode,
+    trailing_space: bool,
+) -> Result<String> {
     if let Ok(res) = serde_json::from_str::<TranscriptionResponse>(body_text) {
         if let Some(text) = res.text {
             return Ok(format_transcription(&text, mode, trailing_space));
@@ -157,7 +161,8 @@ mod tests {
         let res = parse_transcription_response(json, FormattingMode::Standard, true).unwrap();
         assert_eq!(res, "Hello world from Whisper. ");
 
-        let res_no_space = parse_transcription_response(json, FormattingMode::Standard, false).unwrap();
+        let res_no_space =
+            parse_transcription_response(json, FormattingMode::Standard, false).unwrap();
         assert_eq!(res_no_space, "Hello world from Whisper.");
     }
 
@@ -184,10 +189,12 @@ mod tests {
 
     #[test]
     fn test_client_prompt_and_formatting_from_config() {
-        let mut config = Config::default();
-        config.prompt = Some("Technical notes".to_string());
-        config.vocabulary = vec!["Wayland".to_string(), "Rust".to_string()];
-        config.formatting_mode = FormattingMode::KebabCase;
+        let config = Config {
+            prompt: Some("Technical notes".to_string()),
+            vocabulary: vec!["Wayland".to_string(), "Rust".to_string()],
+            formatting_mode: FormattingMode::KebabCase,
+            ..Default::default()
+        };
 
         let client = TranscriptionClient::new(&config);
         assert_eq!(client.formatting_mode(), FormattingMode::KebabCase);

@@ -45,7 +45,10 @@ impl HotkeyEngine {
     }
 
     pub fn is_recording(&self) -> bool {
-        matches!(self.state, ModeState::HoldingPress | ModeState::ActiveToggle)
+        matches!(
+            self.state,
+            ModeState::HoldingPress | ModeState::ActiveToggle
+        )
     }
 
     /// Handles a key press / key down event

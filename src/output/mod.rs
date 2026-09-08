@@ -48,14 +48,14 @@ impl OutputManager {
                 self.injector.paste_clipboard(self.paste_delay_ms)?;
 
                 // Asynchronously restore previous clipboard contents after target app consumed paste
-                if let Some(prev) = prev_clip {
-                    if prev != text {
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(350));
-                            let _ = set_clipboard(&prev);
-                            tracing::debug!("Restored previous clipboard contents");
-                        });
-                    }
+                if let Some(prev) = prev_clip
+                    && prev != text
+                {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(350));
+                        let _ = set_clipboard(&prev);
+                        tracing::debug!("Restored previous clipboard contents");
+                    });
                 }
             }
             OutputMode::ClipboardOnly => {
@@ -72,16 +72,18 @@ impl OutputManager {
                 set_clipboard(text)?;
                 self.injector.type_text(text)?;
 
-                if let Some(prev) = prev_clip {
-                    if prev != text {
-                        std::thread::spawn(move || {
-                            // In type mode, keep transcription on clipboard for 5 seconds so user has time
-                            // to manually paste if target lost focus, then restore previous clipboard.
-                            std::thread::sleep(std::time::Duration::from_millis(5000));
-                            let _ = set_clipboard(&prev);
-                            tracing::debug!("Restored previous clipboard contents after type fallback window");
-                        });
-                    }
+                if let Some(prev) = prev_clip
+                    && prev != text
+                {
+                    std::thread::spawn(move || {
+                        // In type mode, keep transcription on clipboard for 5 seconds so user has time
+                        // to manually paste if target lost focus, then restore previous clipboard.
+                        std::thread::sleep(std::time::Duration::from_millis(5000));
+                        let _ = set_clipboard(&prev);
+                        tracing::debug!(
+                            "Restored previous clipboard contents after type fallback window"
+                        );
+                    });
                 }
             }
         }
@@ -90,6 +92,7 @@ impl OutputManager {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

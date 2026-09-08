@@ -7,7 +7,7 @@ pub mod vad;
 pub use denoise::denoise_audio_mono;
 #[allow(unused_imports)]
 pub use feedback::{
-    play_wav_file, play_wav_file_blocking, play_wav_file_cancellable, EarconType, SoundPlayer,
+    EarconType, SoundPlayer, play_wav_file, play_wav_file_blocking, play_wav_file_cancellable,
 };
-pub use recorder::{save_recording_to_dir, ActiveRecording, AudioRecorder};
+pub use recorder::{ActiveRecording, AudioRecorder, save_recording_to_dir};
 pub use vad::{VadConfig, VadDecision, VadDetector};

@@ -11,6 +11,7 @@ pub enum EarconType {
     RecordingStarted,
     RecordingStopped,
     Transcribed,
+    Cancel,
     Error,
 }
 
@@ -182,6 +183,14 @@ pub fn generate_earcon_samples(earcon: EarconType, sample_rate: u32, volume: f32
         EarconType::Transcribed => {
             generate_sine_tone(1000.0, 0.035, sample_rate, volume)
         }
+        // Gentle descending cancel chime (440 Hz -> 260 Hz, 35ms each)
+        EarconType::Cancel => {
+            let tone1 = generate_sine_tone(440.0, 0.035, sample_rate, volume * 0.9);
+            let tone2 = generate_sine_tone(260.0, 0.045, sample_rate, volume * 0.85);
+            let mut out = tone1;
+            out.extend_from_slice(&tone2);
+            out
+        }
         // Double low buzz (220 Hz -> 180 Hz, 40ms each with 20ms pause)
         EarconType::Error => {
             let tone1 = generate_sine_tone(220.0, 0.040, sample_rate, volume);
@@ -276,6 +285,7 @@ mod tests {
             EarconType::RecordingStarted,
             EarconType::RecordingStopped,
             EarconType::Transcribed,
+            EarconType::Cancel,
             EarconType::Error,
         ] {
             let samples = generate_earcon_samples(earcon, sample_rate, volume);

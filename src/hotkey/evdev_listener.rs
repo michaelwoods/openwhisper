@@ -173,20 +173,25 @@ fn read_device_events(
         match device.fetch_events() {
             Ok(events) => {
                 for ev in events {
-                    if ev.event_type() == EventType::KEY && ev.code() == target_key.code() {
-                        match ev.value() {
-                            1 => {
-                                tracing::info!("evdev hotkey {:?} (code {}) pressed on {:?}", target_key, target_key.code(), path);
-                                let _ = cmd_tx.blocking_send(IpcCommand::PttDown);
+                    if ev.event_type() == EventType::KEY {
+                        if ev.code() == target_key.code() {
+                            match ev.value() {
+                                1 => {
+                                    tracing::info!("evdev hotkey {:?} (code {}) pressed on {:?}", target_key, target_key.code(), path);
+                                    let _ = cmd_tx.blocking_send(IpcCommand::PttDown);
+                                }
+                                0 => {
+                                    tracing::info!("evdev hotkey {:?} (code {}) released on {:?}", target_key, target_key.code(), path);
+                                    let _ = cmd_tx.blocking_send(IpcCommand::PttUp);
+                                }
+                                2 => {
+                                    // Key repeat event from kernel, ignore to avoid re-triggering
+                                }
+                                _ => {}
                             }
-                            0 => {
-                                tracing::info!("evdev hotkey {:?} (code {}) released on {:?}", target_key, target_key.code(), path);
-                                let _ = cmd_tx.blocking_send(IpcCommand::PttUp);
-                            }
-                            2 => {
-                                // Key repeat event from kernel, ignore to avoid re-triggering
-                            }
-                            _ => {}
+                        } else if ev.code() == Key::KEY_ESC.code() && ev.value() == 1 {
+                            tracing::info!("Physical KEY_ESC pressed on {:?}: sending cancel command", path);
+                            let _ = cmd_tx.blocking_send(IpcCommand::Cancel);
                         }
                     }
                 }

@@ -493,6 +493,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         }
 
                                         tray_ctrl_clone.set_state(tray::TrayState::Idle);
+                                        tray_ctrl_clone.add_history(text.clone());
                                         hud_ctrl_clone.set_completed(&text);
                                         notif_clone.read().await.transcribed(&text);
                                         sound_clone.read().await.play(EarconType::Transcribed);
@@ -545,7 +546,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                 let mut guard = active_recording.lock().await;
                 *guard = None;
                 notifications.read().await.error("Recording cancelled");
-                sound.read().await.play(EarconType::Error);
+                sound.read().await.play(EarconType::Cancel);
             }
 
             Action::None => {}

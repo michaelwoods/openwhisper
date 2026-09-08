@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tracing::{info, warn};
@@ -14,12 +15,13 @@ pub enum TrayState {
 pub struct OpenWhisperTray {
     pub state: Arc<RwLock<TrayState>>,
     pub socket_path: String,
+    pub history: Arc<RwLock<VecDeque<String>>>,
 }
 
 #[cfg(target_os = "linux")]
 impl OpenWhisperTray {
-    pub fn new(state: Arc<RwLock<TrayState>>, socket_path: String) -> Self {
-        Self { state, socket_path }
+    pub fn new(state: Arc<RwLock<TrayState>>, socket_path: String, history: Arc<RwLock<VecDeque<String>>>) -> Self {
+        Self { state, socket_path, history }
     }
 
     /// Generate a 24x24 ARGB fallback icon pixmap in-memory
@@ -136,7 +138,7 @@ impl ksni::Tray for OpenWhisperTray {
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        use ksni::menu::{MenuItem, StandardItem};
+        use ksni::menu::{MenuItem, StandardItem, SubMenu};
 
         let current_state = self.state.read().map(|s| *s).unwrap_or(TrayState::Idle);
         let status_label = match current_state {
@@ -148,7 +150,7 @@ impl ksni::Tray for OpenWhisperTray {
 
         let socket_for_toggle = self.socket_path.clone();
 
-        vec![
+        let mut items: Vec<ksni::MenuItem<Self>> = vec![
             StandardItem {
                 label: status_label,
                 enabled: false,
@@ -167,6 +169,56 @@ impl ksni::Tray for OpenWhisperTray {
                 ..Default::default()
             }
             .into(),
+        ];
+
+        let history_items = self.history.read().map(|h| h.clone()).unwrap_or_default();
+        if !history_items.is_empty() {
+            let mut recent_subitems: Vec<ksni::MenuItem<Self>> = Vec::new();
+            for (idx, item) in history_items.iter().take(5).enumerate() {
+                let full_text = item.clone();
+                let display_text = if full_text.chars().count() > 36 {
+                    let truncated: String = full_text.chars().take(36).collect();
+                    format!("{}. {}...", idx + 1, truncated)
+                } else {
+                    format!("{}. {}", idx + 1, full_text)
+                };
+
+                recent_subitems.push(
+                    StandardItem {
+                        label: display_text,
+                        activate: Box::new(move |_| {
+                            let text = full_text.clone();
+                            if let Err(e) = crate::output::set_clipboard(&text) {
+                                warn!("Failed to copy recent item to clipboard: {e}");
+                            } else {
+                                info!("Copied recent transcription to clipboard from tray menu");
+                                std::thread::spawn(move || {
+                                    let _ = notify_rust::Notification::new()
+                                        .summary("OpenWhisper — Copied to Clipboard")
+                                        .body(&text)
+                                        .icon("openwhisper")
+                                        .timeout(notify_rust::Timeout::Milliseconds(3000))
+                                        .show();
+                                });
+                            }
+                        }),
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
+
+            items.push(
+                SubMenu {
+                    label: "📋  Recent Dictations".into(),
+                    submenu: recent_subitems,
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+
+        items.push(
             StandardItem {
                 label: "⚙️  Settings / Configuration...".into(),
                 activate: Box::new(|_| {
@@ -179,7 +231,11 @@ impl ksni::Tray for OpenWhisperTray {
                 ..Default::default()
             }
             .into(),
-            MenuItem::Separator,
+        );
+
+        items.push(MenuItem::Separator);
+
+        items.push(
             StandardItem {
                 label: "❌ Quit OpenWhisper".into(),
                 activate: Box::new(|_| {
@@ -189,7 +245,9 @@ impl ksni::Tray for OpenWhisperTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        );
+
+        items
     }
 }
 
@@ -199,17 +257,22 @@ pub struct TrayController {
     #[cfg(target_os = "linux")]
     handle: Option<ksni::Handle<OpenWhisperTray>>,
     state: Arc<RwLock<TrayState>>,
+    history: Arc<RwLock<VecDeque<String>>>,
 }
 
 impl TrayController {
     #[cfg(target_os = "linux")]
-    pub fn new(handle: Option<ksni::Handle<OpenWhisperTray>>, state: Arc<RwLock<TrayState>>) -> Self {
-        Self { handle, state }
+    pub fn new(
+        handle: Option<ksni::Handle<OpenWhisperTray>>,
+        state: Arc<RwLock<TrayState>>,
+        history: Arc<RwLock<VecDeque<String>>>,
+    ) -> Self {
+        Self { handle, state, history }
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn new(state: Arc<RwLock<TrayState>>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<RwLock<TrayState>>, history: Arc<RwLock<VecDeque<String>>>) -> Self {
+        Self { state, history }
     }
 
     pub fn set_state(&self, new_state: TrayState) {
@@ -228,32 +291,62 @@ impl TrayController {
             });
         }
     }
+
+    pub fn add_history(&self, text: String) {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Ok(mut lock) = self.history.write() {
+            // Avoid duplicate consecutive entries
+            if lock.front().map(|s| s.as_str()) == Some(trimmed) {
+                return;
+            }
+            lock.push_front(trimmed.to_string());
+            if lock.len() > 10 {
+                lock.pop_back();
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(ref handle) = self.handle {
+            let handle = handle.clone();
+            tokio::spawn(async move {
+                handle.update(|_| {}).await;
+            });
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn history(&self) -> Vec<String> {
+        self.history.read().map(|h| h.iter().cloned().collect()).unwrap_or_default()
+    }
 }
 
 
 /// Spawn the system tray in background if on Linux
 pub async fn start_tray_service(socket_path: String) -> (TrayController, Arc<RwLock<TrayState>>) {
     let state = Arc::new(RwLock::new(TrayState::Idle));
+    let history = Arc::new(RwLock::new(VecDeque::new()));
 
     #[cfg(target_os = "linux")]
     {
         use ksni::TrayMethods;
-        let tray = OpenWhisperTray::new(state.clone(), socket_path);
+        let tray = OpenWhisperTray::new(state.clone(), socket_path, history.clone());
         match tray.spawn().await {
             Ok(handle) => {
                 info!("System tray (StatusNotifierItem) initialized successfully.");
-                (TrayController::new(Some(handle), state.clone()), state)
+                (TrayController::new(Some(handle), state.clone(), history), state)
             }
             Err(err) => {
                 warn!("StatusNotifierWatcher not available or failed to register tray: {err}. Running without system tray.");
-                (TrayController::new(None, state.clone()), state)
+                (TrayController::new(None, state.clone(), history), state)
             }
         }
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        (TrayController::new(state.clone()), state)
+        (TrayController::new(state.clone(), history), state)
     }
 }
 
@@ -264,7 +357,8 @@ mod tests {
     #[test]
     fn test_tray_fallback_icon_dimensions() {
         let state = Arc::new(RwLock::new(TrayState::Idle));
-        let tray = OpenWhisperTray::new(state, "/tmp/test.sock".into());
+        let history = Arc::new(RwLock::new(VecDeque::new()));
+        let tray = OpenWhisperTray::new(state, "/tmp/test.sock".into(), history);
 
         for s in [TrayState::Idle, TrayState::Recording, TrayState::Transcribing, TrayState::Error] {
             let icon = tray.generate_fallback_icon(s);
@@ -277,7 +371,8 @@ mod tests {
     #[test]
     fn test_tray_controller_state_update() {
         let state = Arc::new(RwLock::new(TrayState::Idle));
-        let ctrl = TrayController::new(None, state.clone());
+        let history = Arc::new(RwLock::new(VecDeque::new()));
+        let ctrl = TrayController::new(None, state.clone(), history);
 
         assert_eq!(*state.read().unwrap(), TrayState::Idle);
         ctrl.set_state(TrayState::Recording);
@@ -286,6 +381,44 @@ mod tests {
         assert_eq!(*state.read().unwrap(), TrayState::Transcribing);
         ctrl.set_state(TrayState::Error);
         assert_eq!(*state.read().unwrap(), TrayState::Error);
+    }
+
+    #[test]
+    fn test_tray_controller_history_ring_buffer() {
+        let state = Arc::new(RwLock::new(TrayState::Idle));
+        let history = Arc::new(RwLock::new(VecDeque::new()));
+        let ctrl = TrayController::new(None, state, history);
+
+        assert!(ctrl.history().is_empty());
+
+        // Empty string ignored
+        ctrl.add_history("   ".to_string());
+        assert!(ctrl.history().is_empty());
+
+        // Adding entries
+        ctrl.add_history("First transcription".to_string());
+        assert_eq!(ctrl.history(), vec!["First transcription".to_string()]);
+
+        // Consecutive duplicate ignored
+        ctrl.add_history("First transcription".to_string());
+        assert_eq!(ctrl.history().len(), 1);
+
+        // Add second entry (prepends)
+        ctrl.add_history("Second transcription".to_string());
+        assert_eq!(ctrl.history(), vec![
+            "Second transcription".to_string(),
+            "First transcription".to_string(),
+        ]);
+
+        // Push 11 items to test ring buffer max capacity (10)
+        for i in 1..=11 {
+            ctrl.add_history(format!("Batch dictation #{}", i));
+        }
+
+        let current = ctrl.history();
+        assert_eq!(current.len(), 10);
+        assert_eq!(current[0], "Batch dictation #11");
+        assert_eq!(current[9], "Batch dictation #2");
     }
 }
 

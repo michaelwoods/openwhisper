@@ -2,7 +2,7 @@
 name = "openwhisper"
 version = "0.1.0"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 authors = ["Michael Woods", "OpenWhisper Contributors"]
 description = "A cross-platform speech-to-text assistant powered by Whisper and local OpenVINO / OpenAI-compatible endpoints."
 repository = "https://github.com/michaelwoods/openwhisper"

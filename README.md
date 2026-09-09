@@ -290,10 +290,6 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 
 ## License
 
-OpenWhisper is dual-licensed under either of:
+OpenWhisper is open-source software licensed under the [MIT License](LICENSE).
 
-- **MIT License** ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
-- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
-
-at your option.
 

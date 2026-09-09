@@ -285,3 +285,15 @@ For tools or compositors that support separate Key Down and Key Up bindings:
 
 - 🤖 **[AGENTS.md](AGENTS.md)**: Developer and AI agent guide detailing architecture invariants, zero-disk memory constraints, and threading safety.
 - 🗺️ **[ROADMAP.md](ROADMAP.md)**: Technical specifications for upcoming multi-platform backends (macOS CoreAudio/CGEventTap, Windows WASAPI/SendInput, iOS keyboard extension) and real-time streaming dictation.
+
+---
+
+## License
+
+OpenWhisper is dual-licensed under either of:
+
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
+
+at your option.
+

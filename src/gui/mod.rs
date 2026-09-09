@@ -622,12 +622,12 @@ pub fn run_gui(config: Config) -> Result<()> {
 
                     if reloaded {
                         ui.set_status_text(SharedString::from(
-                            "Settings saved to config.toml and running daemon reloaded live via IPC!",
+                            "Settings saved and applied successfully!",
                         ));
                         ui.set_status_is_error(false);
                     } else {
                         ui.set_status_text(SharedString::from(
-                            "Settings saved to config.toml. (Daemon not running; changes will apply on next startup)",
+                            "Settings saved successfully. (Service not running; changes will apply on next start)",
                         ));
                         ui.set_status_is_error(false);
                     }

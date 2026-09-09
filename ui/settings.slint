@@ -169,19 +169,19 @@ export component SettingsWindow inherits Window {
                         spacing: 12px;
 
                         GroupBox {
-                            title: "Direct Linux evdev Push-to-Talk";
+                            title: "Global Shortcut (Push-to-Talk & Hands-Free)";
                             VerticalBox {
                                 alignment: start;
                                 spacing: 8px;
                                 CheckBox {
-                                    text: "Enable Direct Hardware Hotkey (Linux evdev Push-to-Talk)";
+                                    text: "Enable Global Shortcut Hotkey";
                                     checked <=> root.evdev-enabled;
                                 }
 
                                 if root.evdev-enabled: VerticalBox {
                                     alignment: start;
                                     spacing: 6px;
-                                    Text { text: "Hardware Keycode Identifier:"; font-size: 12px; }
+                                    Text { text: "Shortcut Key:"; font-size: 12px; }
                                     HorizontalLayout {
                                         spacing: 8px;
                                         LineEdit {
@@ -196,7 +196,7 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                     Text {
-                                        text: "Click 'Detect Key' and press any physical key, or enter e.g. KEY_RIGHTALT, KEY_RIGHTCTRL, KEY_F9";
+                                        text: "Click 'Detect Key' and press any physical key (e.g. Right Alt, Right Ctrl, F9)";
                                         font-size: 11px;
                                         color: #888888;
                                     }
@@ -231,8 +231,13 @@ export component SettingsWindow inherits Window {
                                 spacing: 8px;
                                 Text { text: "Output Mode:"; font-size: 12px; }
                                 ComboBox {
-                                    model: ["Paste (Clipboard + Virtual Ctrl+V)", "Clipboard Only", "Type Keystrokes"];
+                                    model: ["Paste (Recommended - instant, safe)", "Clipboard Only", "Type Keystrokes (Simulate typing)"];
                                     current-index <=> root.output-mode-index;
+                                }
+                                Text {
+                                    text: "Paste is fastest and safe in code editors, browsers, and terminals.";
+                                    font-size: 11px;
+                                    color: #888888;
                                 }
 
                                 CheckBox {
@@ -329,11 +334,11 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 CheckBox {
-                                    text: "Enable Background Noise Suppression (RNNoise Neural Filter)";
+                                    text: "Enable Background Noise Suppression";
                                     checked <=> root.noise-suppression;
                                 }
 
-                                Text { text: "Save Audio Recordings Directory (optional for TTS dataset):"; font-size: 12px; }
+                                Text { text: "Save Audio Recordings Folder (optional):"; font-size: 12px; }
                                 LineEdit {
                                     text <=> root.save-audio-dir;
                                     placeholder-text: "e.g. /home/mike/Recordings/openwhisper";
@@ -382,7 +387,7 @@ export component SettingsWindow inherits Window {
                                 alignment: start;
                                 spacing: 8px;
                                 CheckBox {
-                                    text: "Show Desktop Notification Toasts (libnotify)";
+                                    text: "Show Desktop Notifications";
                                     checked <=> root.notifications-enabled;
                                 }
 
@@ -416,7 +421,7 @@ export component SettingsWindow inherits Window {
                                 alignment: start;
                                 spacing: 8px;
                                 CheckBox {
-                                    text: "Launch OpenWhisper automatically at startup (systemd & autostart)";
+                                    text: "Start OpenWhisper automatically when you log in";
                                     checked <=> root.autostart-enabled;
                                 }
                             }

@@ -94,7 +94,7 @@ Dictating in a Linux terminal or IDE requires different formatting (lowercase, n
 Spoken language frequently contains conversational artifacts such as filler words ("um", "uh", "you know"), stutters, false starts, and self-corrections ("let's meet Tuesday, wait, I mean Wednesday").
 
 ### Architecture
-- Optional second-stage LLM pipeline querying a local model (Ollama, vLLM, llama.cpp on `frigg`) or cloud API.
+- Optional second-stage LLM pipeline querying a local model (Ollama, vLLM, llama.cpp on a local server) or cloud API.
 - **Persona & Transformation Styles**:
   - **Cleaned**: Strips fillers, repetitions, and hesitation while preserving exact word choice.
   - **Professional / Email**: Formats stream-of-consciousness thoughts into concise, polished paragraphs.

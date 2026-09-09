@@ -809,7 +809,7 @@ mod tests {
         ];
 
         let mut original = Config::default();
-        original.server_url = "http://frigg:8000/v1/audio/transcriptions".to_string();
+        original.server_url = "http://localhost:8000/v1/audio/transcriptions".to_string();
         original.model = "whisper-medium".to_string();
         original.api_key = Some("test-api-token".to_string());
         original.language = Some("es".to_string());

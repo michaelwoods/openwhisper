@@ -1,3 +1,27 @@
+//! High-Fidelity Bandlimited Audio Resampler and Channel Downmixer
+//!
+//! Whisper automatic speech recognition models expect 16,000 Hz, 16-bit mono PCM audio.
+//! Modern audio input hardware commonly captures at 44,100 Hz or 48,000 Hz in stereo (or multi-channel).
+//!
+//! ### Acoustic Invariants & Mathematical Background:
+//! 1. **Nyquist-Shannon Sampling Theorem**:
+//!    For a target sample rate of $f_{\text{target}} = 16,000\text{ Hz}$, the Nyquist frequency is
+//!    $f_{\text{Nyquist}} = \frac{f_{\text{target}}}{2} = 8,000\text{ Hz}$.
+//!    Any spectral energy in the source signal above 8 kHz must be attenuated prior to decimation;
+//!    otherwise, it folds back into the speech band ($[0, 8\text{ kHz}]$) as aliasing distortion:
+//!    $$f_{\text{alias}} = |f_{\text{source}} - k \cdot f_{\text{target}}|$$
+//!    Aliased frequencies corrupt the log-mel spectrogram filterbanks used by Whisper's encoder.
+//!
+//! 2. **Bandlimited Sinc Resampling (`rubato`)**:
+//!    We use Rubato's FFT-based synchronous resampler with a `BlackmanHarris2` anti-aliasing window.
+//!    This window delivers steep transition roll-off and $>28\text{ dB}$ stopband attenuation,
+//!    preserving voice harmonics below 8 kHz while filtering out ultrasound and microphone clock jitter.
+//!
+//! 3. **Downmixing Before Resampling**:
+//!    Multi-channel input (e.g. stereo Left/Right) is averaged into mono *before* resampling.
+//!    Downmixing first reduces the data volume by $N_{\text{channels}}\times$, eliminating redundant
+//!    FFT computations and preventing inter-channel phase cancellation artifacts during interpolation.
+
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Resampler};
 
@@ -48,7 +72,11 @@ pub fn resample_f32_mono(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f
     }
 }
 
-/// Fallback linear resampler for arbitrary single-channel f32 buffers
+/// Fallback linear resampler for arbitrary single-channel f32 buffers.
+///
+/// Uses first-order linear interpolation between neighboring samples:
+/// $$s(t) = s_0 + \mathrm{frac} \cdot (s_1 - s_0)$$
+/// Intended strictly as a lightweight fallback for degenerate test buffers or if FFT allocation fails.
 fn resample_linear(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     if src_rate == dst_rate || samples.is_empty() {
         return samples.to_vec();
@@ -77,7 +105,21 @@ fn resample_linear(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
     output
 }
 
+/// Converts a normalized float sample in $[-1.0, 1.0]$ to a 16-bit signed integer $[-32767, 32767]$.
+/// Clamps outliers to prevent integer overflow wrapping.
+#[inline(always)]
+fn float_to_i16_sample(sample: f32) -> i16 {
+    let clamped = sample.clamp(-1.0, 1.0);
+    (clamped * 32767.0).round() as i16
+}
+
 /// Resamples multi-channel f32 samples at `source_rate` to mono i16 samples at `target_rate` (16,000 Hz).
+///
+/// ### Performance Optimizations:
+/// - **Direct Mono Identity Fast-Path**: When input is mono and already at the target sample rate,
+///   converts directly from float to i16 in a single pre-allocated pass with zero intermediate heap allocations.
+/// - **Zero-Allocation Downmix Bypass**: When input is mono but needs resampling, borrows the input slice
+///   directly into the sinc resampler, avoiding an intermediate `Vec<f32>` allocation.
 pub fn resample_to_mono_16k(
     interleaved_samples: &[f32],
     channels: u16,
@@ -90,34 +132,36 @@ pub fn resample_to_mono_16k(
 
     let channels = channels.max(1) as usize;
 
-    // 1. Downmix interleaved channels to mono
-    let mono_samples: Vec<f32> = if channels == 1 {
-        interleaved_samples.to_vec()
+    // Fast-path 1: Mono audio already at 16,000 Hz — direct single-pass float-to-i16 conversion
+    if channels == 1 && source_rate == target_rate {
+        let mut output = Vec::with_capacity(interleaved_samples.len());
+        output.extend(interleaved_samples.iter().copied().map(float_to_i16_sample));
+        return output;
+    }
+
+    // Step 1: Downmix interleaved multi-channel samples to mono (or borrow mono slice directly)
+    let resampled_floats: Vec<f32> = if channels == 1 {
+        // Fast-path 2: Mono audio needing resampling — borrow slice directly, zero downmix allocation!
+        resample_f32_mono(interleaved_samples, source_rate, target_rate)
     } else {
-        interleaved_samples
-            .chunks_exact(channels)
-            .map(|frame| {
-                let sum: f32 = frame.iter().sum();
-                sum / (channels as f32)
-            })
-            .collect()
+        // Multi-channel: Compute arithmetic mean across channels for each interleaved audio frame
+        let mut mono_samples = Vec::with_capacity(interleaved_samples.len() / channels);
+        for frame in interleaved_samples.chunks_exact(channels) {
+            let sum: f32 = frame.iter().sum();
+            mono_samples.push(sum / (channels as f32));
+        }
+
+        if source_rate == target_rate {
+            mono_samples
+        } else {
+            resample_f32_mono(&mono_samples, source_rate, target_rate)
+        }
     };
 
-    // 2. Resample if source_rate != target_rate
-    let resampled: Vec<f32> = if source_rate == target_rate {
-        mono_samples
-    } else {
-        resample_f32_mono(&mono_samples, source_rate, target_rate)
-    };
-
-    // 3. Convert f32 [-1.0, 1.0] to i16 with soft clamping
-    resampled
-        .into_iter()
-        .map(|s| {
-            let clamped = s.clamp(-1.0, 1.0);
-            (clamped * 32767.0).round() as i16
-        })
-        .collect()
+    // Step 2: Convert normalized f32 [-1.0, 1.0] to signed 16-bit PCM with soft clamping
+    let mut pcm_output = Vec::with_capacity(resampled_floats.len());
+    pcm_output.extend(resampled_floats.into_iter().map(float_to_i16_sample));
+    pcm_output
 }
 
 #[cfg(test)]

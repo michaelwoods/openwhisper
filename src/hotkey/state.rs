@@ -1,3 +1,34 @@
+//! Dual-Mode Push-to-Talk (PTT) and Hands-Free Toggle State Machine
+//!
+//! Traditional dictation tools force users to choose between mutually-exclusive PTT and Toggle modes.
+//! OpenWhisper unifies both into a single seamless state machine governed by key release elapsed time:
+//!
+//! ```text
+//!                     ┌───────────────────────────────┐
+//!                     │             Idle              │
+//!                     └───────────────┬───────────────┘
+//!                                     │ Key Down
+//!                                     ▼
+//!                     ┌───────────────────────────────┐
+//!     ┌───────────────│         HoldingPress          │◀──────────────┐
+//!     │               └───────────────┬───────────────┘               │
+//!     │ Key Up (elapsed < threshold)  │ Key Up (elapsed >= threshold) │ OS Key Repeat
+//!     ▼                               ▼                               │ (Ignored)
+//! ┌───────────────────────────┐ ┌───────────────────────────┐         │
+//! │       ActiveToggle        │ │       Transcribing        │─────────┘
+//! └─────────────┬─────────────┘ └─────────────┬─────────────┘
+//!               │                             │
+//!               │ Key Down (Second Tap)       │ Transcription Finished
+//!               ▼                             ▼
+//! ┌───────────────────────────┐ ┌───────────────────────────┐
+//! │       Transcribing        │ │           Idle            │
+//! └───────────────────────────┘ └───────────────────────────┘
+//! ```
+//!
+//! ### State Machine Invariants:
+//! - **Zero Mode Switching**: Holding the key dictates push-to-talk; tapping the key dictates hands-free.
+//! - **Key Repeat Immunity**: While in `HoldingPress`, OS autorepeat events are safely discarded.
+//! - **Atomic Abort**: Pressing physical `Escape` (`KEY_ESC`) at any time bypasses transcription and immediately resets to `Idle`.
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

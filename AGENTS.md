@@ -119,12 +119,26 @@ Agents must verify code changes using these exact commands prior to finishing ta
 # 1. Format check
 cargo fmt --check
 
-# 2. Strict linter check (zero warnings permitted)
+# 2. Strict linter check (zero warnings permitted, enforced via Cargo.toml [lints])
 cargo clippy --all-targets -- -D warnings
 
-# 3. Comprehensive test suite (unit + CLI + integration tests)
+# 3. Documentation build verification (zero broken intra-doc links)
+cargo doc --no-deps
+
+# 4. Comprehensive test suite (3-tier testing: unit, assert_cmd CLI, wiremock pipeline)
 cargo test --all-targets
 
-# 4. End-to-end system diagnostic verification
+# 5. End-to-end system diagnostic verification
 cargo run -- doctor --json
 ```
+
+---
+
+## 5. 3-Tier Testing Architecture
+
+1. **Tier 1 (Unit Tests)**: Pure functions, DSP algorithms (`rubato` sinc downmixing, RMS float stability in `vad.rs`), hotkey state machine transitions, and text casing formatters.
+2. **Tier 2 (Subsystem Integration Tests)**:
+   - `tests/cli_tests.rs`: `assert_cmd` CLI flag, exit code, and subcommand execution testing.
+   - `tests/pipeline_integration_test.rs`: `wiremock` mock HTTP server end-to-end Whisper audio multipart upload and error simulation.
+3. **Tier 3 (System Diagnostics)**:
+   - `openwhisper doctor`: 6-subsystem runtime probe inspecting active hardware, `/dev/uinput`, live daemon IPC socket, and STT endpoint reachability.

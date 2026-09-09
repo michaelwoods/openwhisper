@@ -65,9 +65,9 @@ pub fn start_evdev_listener(
     let running = Arc::new(AtomicBool::new(true));
     let monitored_paths: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
 
-    let sup_running = running.clone();
-    let sup_monitored = monitored_paths.clone();
-    let sup_cmd_tx = cmd_tx.clone();
+    let sup_running = Arc::clone(&running);
+    let sup_monitored = monitored_paths;
+    let sup_cmd_tx = cmd_tx;
 
     // Supervisor thread: periodically enumerates /dev/input to find all devices supporting the target key
     // This immediately picks up internal keyboards and dynamically supports hotplugged USB/Bluetooth keyboards
@@ -388,9 +388,7 @@ mod tests {
     #[test]
     fn test_handle_lifecycle() {
         let running = Arc::new(AtomicBool::new(true));
-        let handle = EvdevListenerHandle {
-            running: running.clone(),
-        };
+        let handle = EvdevListenerHandle { running };
         assert!(handle.is_running());
         handle.stop();
         assert!(!handle.is_running());

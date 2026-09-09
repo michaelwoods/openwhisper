@@ -7,6 +7,16 @@ use std::time::Duration;
 use super::formatting::{FormattingMode, build_whisper_prompt, format_transcription};
 use crate::config::Config;
 
+/// High-Performance Asynchronous STT Client
+///
+/// Dispatches audio data to OpenAI-compatible `/v1/audio/transcriptions` HTTP REST endpoints
+/// (including local OpenVINO Model Server, Whisper.cpp server, vLLM, Groq, and OpenAI).
+///
+/// ### Whisper Decoder Priming & Context Biasing:
+/// The Whisper architecture features an autoregressive Transformer decoder that accepts an initial
+/// prompt token sequence. Passing technical terms or domain-specific jargon (`config.vocabulary`)
+/// primes the cross-attention layers, dramatically biasing beam search toward predicting correct
+/// casing, punctuation, and uncommon words (e.g. "Kubernetes", "Wayland", "Rust") over common homophones.
 #[derive(Debug, Clone)]
 pub struct TranscriptionClient {
     client: Client,
@@ -28,8 +38,11 @@ struct TranscriptionResponse {
 
 impl TranscriptionClient {
     pub fn new(config: &Config) -> Self {
+        // Configure pooled HTTP client with aggressive connection timeouts and keep-alive
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(10))
+            .tcp_keepalive(Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| Client::new());
 

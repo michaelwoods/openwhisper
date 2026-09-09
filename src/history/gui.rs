@@ -76,7 +76,7 @@ pub fn run_history_gui(history_mgr: Arc<HistoryManager>) -> Result<()> {
     let reload = {
         let window_weak = window.as_weak();
         let mgr = Arc::clone(&history_mgr);
-        let items_model = items_model.clone();
+        let items_model = items_model;
         move |query: &str| {
             let Some(win) = window_weak.upgrade() else {
                 return;

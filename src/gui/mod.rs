@@ -434,7 +434,7 @@ pub fn run_gui(config: Config) -> Result<()> {
     // Callback: Preview HUD Overlay
     let preview_child: Rc<RefCell<Option<std::process::Child>>> = Rc::new(RefCell::new(None));
     {
-        let socket_path = config.socket_path.clone();
+        let socket_path = config.socket_path;
         let child_handle = preview_child.clone();
         ui.on_preview_hud(move || {
             // 1. If daemon is running, trigger seamless preview on daemon's existing HUD
@@ -658,7 +658,7 @@ pub fn run_gui(config: Config) -> Result<()> {
     // Callback: Reset to Defaults
     {
         let ui_weak = ui.as_weak();
-        let vocab_model = vocab_model.clone();
+        let vocab_model = vocab_model;
         ui.on_reset_defaults(move || {
             let Some(ui) = ui_weak.upgrade() else {
                 return;

@@ -43,6 +43,9 @@ jobs:
       - name: Cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Verify documentation
+        run: cargo doc --no-deps
+
       - name: Run all tests (unit & integration)
         run: cargo test --verbose --all-targets
 

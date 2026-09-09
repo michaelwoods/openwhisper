@@ -179,7 +179,8 @@ impl AudioRecorder {
         let drain_handle = std::thread::Builder::new()
             .name("audio-drain".to_string())
             .spawn(move || {
-                let mut temp_buf = vec![0.0f32; 4096];
+                // Fixed 2048-sample stack buffer (~8 KB) eliminates heap allocations during the drain loop.
+                let mut temp_buf = [0.0f32; 2048];
                 while is_recording_draining.load(Ordering::Relaxed) || !cons.is_empty() {
                     let count = cons.pop_slice(&mut temp_buf);
                     if count > 0 {
@@ -362,7 +363,14 @@ impl ActiveRecording {
             sample_format: WavSampleFormat::Int,
         };
 
-        let mut buffer = Cursor::new(Vec::new());
+        // Standard RIFF WAV header for 16-bit mono 16kHz audio is exactly 44 bytes:
+        // - 12 bytes RIFF header ("RIFF", file size, "WAVE")
+        // - 24 bytes fmt chunk ("fmt ", chunk size, format, channels, sample rate, byte rate, block align, bits/sample)
+        // - 8 bytes data chunk header ("data", data size)
+        // Total bytes = 44 + (pcm_samples * 2 bytes/sample).
+        // Pre-allocating exact capacity prevents multiple geometric vector reallocations during audio encoding.
+        let expected_wav_size = 44 + pcm_16k.len() * 2;
+        let mut buffer = Cursor::new(Vec::with_capacity(expected_wav_size));
         {
             let mut writer =
                 WavWriter::new(&mut buffer, spec).context("Failed to initialize WAV writer")?;

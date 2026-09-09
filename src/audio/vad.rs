@@ -65,16 +65,34 @@ impl VadDetector {
         self.recording_started_at = now;
     }
 
-    /// Computes Root Mean Square (RMS) energy of a buffer of f32 samples.
+    /// Computes the Root Mean Square (RMS) energy of a buffer of audio samples.
+    ///
+    /// $$X_{\text{RMS}} = \sqrt{\frac{1}{N} \sum_{i=0}^{N-1} x_i^2}$$
+    ///
+    /// ### Numerical Stability:
+    /// Accumulates squared amplitudes into a 64-bit float (`f64`). Summing large sequences
+    /// (e.g. 50,000+ samples) directly in `f32` causes catastrophic cancellation and precision drift
+    /// as the accumulator grows large relative to individual tiny additions ($x_i^2 \approx 10^{-4}$).
+    /// Returns normalized RMS in $[0.0, 1.0]$.
     pub fn calculate_rms(samples: &[f32]) -> f32 {
         if samples.is_empty() {
             return 0.0;
         }
-        let sum_sq: f32 = samples.iter().map(|&s| s * s).sum();
-        (sum_sq / samples.len() as f32).sqrt()
+        let sum_sq: f64 = samples.iter().map(|&s| (s as f64) * (s as f64)).sum();
+        ((sum_sq / samples.len() as f64).sqrt()) as f32
     }
 
     /// Evaluates a chunk of audio samples and determines if silence timeout was reached.
+    ///
+    /// ### Hysteresis & False-Trigger Suppression:
+    /// 1. **Noise Floor vs Speech**: Typical ambient room noise produces RMS $< 0.005$,
+    ///    while natural speech produces RMS between $0.02$ and $0.25$.
+    /// 2. **Transient Rejection**: Background microphone thumps, mouse clicks, or short breaths
+    ///    do not trigger premature finalization because silence timeout evaluation requires
+    ///    prior confirmed speech lasting at least `min_speech_duration` (default: 300ms).
+    /// 3. **Trailing Silence Window**: Once valid speech is detected, each silent chunk advances the
+    ///    inactivity counter. When silent time exceeds `silence_timeout` (default: 1800ms),
+    ///    `VadDecision::SilenceTimeout` signals the recorder to finalize dictation.
     pub fn process_chunk(&mut self, samples: &[f32], now: Instant) -> VadDecision {
         if !self.config.enabled || samples.is_empty() {
             return VadDecision::Continue;

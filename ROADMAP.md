@@ -11,6 +11,9 @@ This document tracks upcoming milestones, proposed features, and architectural p
 | :--- | :--- | :--- | :--- | :--- |
 | **P1** | **Spoken Punctuation & Formatting Macros** | Transcription Engine | **Next Candidate** | Spoken punctuation ("new line" $\to$ `\n`, "period" $\to$ `.`) |
 | **P1** | **Dataset Exporter & Manifest Tool** | Audio / Dataset | **Next Candidate** | `openwhisper export-tts-dataset` (LJSpeech / Piper / XTTS) |
+| **P1** | **Automated Udev Rule Generator** | Desktop / Permissions| **Planned** | `openwhisper setup --udev` (dynamic seat uaccess for Ubuntu/Arch) |
+| **P2** | **Offline Spool Queue & Retry Resiliency** | Pipeline / Network | **Planned** | Local retry spool (`~/.cache/...`) & optional embedded Whisper |
+| **P2** | **Native `wlr-layer-shell` HUD Overlay**| Wayland / HUD | **Planned** | Multi-monitor anchored non-focus overlay without position drift |
 | **P2** | **Custom Text Expansion & Voice Snippets** | Post-Processing | **Planned** | Voice snippet expansion table in GUI & `config.toml` |
 | **P2** | **Context-Aware Automatic Formatting** | Desktop Integration | **Planned** | Active window detection via KWin D-Bus for smart formatting |
 | **P2** | **LLM Post-Processing & Smart Styles** | Inference Pipeline | **Planned** | Filler word removal & email polishing via local LLM |
@@ -158,3 +161,65 @@ For lengthy dictation sessions, seeing words appear in real time reduces perceiv
 ### Research Findings: OpenVINO Model Server (OVMS) Audio Streaming
 - **HTTP REST (`/v1/audio/transcriptions`)**: Supports streaming *responses* (SSE text tokens via `stream=true`), but does **not** support live chunked *audio input* streams. The complete audio file must be uploaded in the request body.
 - **gRPC (`ModelStreamInfer`)**: OVMS provides bidirectional gRPC streaming, but out-of-the-box Whisper models (`speech2text` task) operate on discrete audio buffers. True live chunked streaming audio requires deploying a custom MediaPipe audio chunking and sliding-window graph on the server.
+
+---
+
+## 8. User Pain Points & Field Mitigations
+
+Systematic analysis of friction points that users and contributors may encounter across various Linux distributions, hardware topologies, and network environments, along with planned architectural mitigations:
+
+### A. Linux Hardware Input Permissions (`/dev/input/event*` and `/dev/uinput`)
+- **Pain Point**:
+  While Fedora automatically assigns ACLs (`user:$USER:rw-`) to `/dev/uinput` and input devices on active physical seats, Debian, Ubuntu, and Arch Linux default to `root:input (0660)`. Users launching OpenWhisper on these distributions see `Permission denied` when trying to read hardware hotkeys or type emulated keystrokes.
+- **Architectural Mitigation**:
+  1. **Automated Udev Rule Deployment (`openwhisper setup --udev`)**:
+     Deploy `/etc/udev/rules.d/99-openwhisper.rules` granting `TAG+="uaccess"`:
+     ```udev
+     KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess"
+     KERNEL=="event*", SUBSYSTEM=="input", ENV{ID_INPUT_KEYBOARD}=="?*", TAG+="uaccess"
+     ```
+     This grants dynamic read/write access to the logged-in desktop user without requiring group membership changes (`sudo usermod -aG input $USER`) or a system reboot.
+  2. **Non-Root Wayland Portal Fallback**:
+     Expand the XDG Desktop Portal `GlobalShortcuts` listener (`src/hotkey/portal.rs`) so that hotkey detection works seamlessly even on locked-down Enterprise Linux or immutable flatpak environments where `/dev/input` cannot be accessed directly.
+
+### B. Audio Hardware Topology & Dynamic PipeWire Route Switching
+- **Pain Point**:
+  Plugging or unplugging USB headsets, switching Bluetooth audio profiles (A2DP to HFP/HSP), or docking a laptop can orphan active audio streams or cause capture latency spikes.
+- **Architectural Mitigation**:
+  1. **Dynamic PipeWire Node Monitor**:
+     Listen for PipeWire registry events (`pw_registry_listen`) to detect when the default capture node changes in real time.
+  2. **In-Flight Stream Re-Anchoring**:
+     Seamlessly migrate the `cpal` input stream to the new default audio endpoint in the background without dropping the daemon or aborting an active recording session.
+
+### C. Multi-Monitor & Fractional Scaling HUD Overlay Drift
+- **Pain Point**:
+  Under Wayland compositors (GNOME Mutter, Hyprland, Sway), applications cannot programmatically set absolute window coordinates via standard X11 positioning calls. On multi-monitor setups or with fractional scaling (e.g. 125%, 150%), floating windows positioned via `winit::outer_position` can center on the wrong monitor or exhibit subpixel drift.
+- **Architectural Mitigation**:
+  1. **Native `wlr-layer-shell` Protocol Integration**:
+     Implement a native Wayland layer-shell surface (`zwlr_layer_shell_v1`) anchored to `ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY`.
+  2. **Active Monitor Pinning**:
+     Anchor the HUD pill to the bottom-center of the currently active focused monitor with zero window decorations, zero focus stealing, and exact compositor-managed scaling.
+
+### D. Offline Resilience, Spool Queue & Embedded Model Fallback
+- **Pain Point**:
+  When dictating while traveling, on unstable Wi-Fi, or during local inference server restarts (OVMS container initialization), network requests fail and spoken transcripts are lost.
+- **Architectural Mitigation**:
+  1. **Durable Local Spool Queue**:
+     If the STT endpoint returns a connection error or times out, persist the audio in `~/.cache/openwhisper/spool/` alongside SQLite history state (`status = 'pending_retry'`).
+  2. **Background Retry & Notification**:
+     Once network reachability is restored, process spooled dictations in the background and copy the resulting transcript or display a notification.
+  3. **Optional Embedded Whisper Feature (`--features embedded-whisper`)**:
+     Provide an optional build flag compiling a compact quantized Whisper model (via `whisper-rs` / `tract`) directly into the OpenWhisper binary, providing 100% offline dictation when no remote or local HTTP server is available.
+
+### E. GNOME Shell System Tray Absence
+- **Pain Point**:
+  GNOME Shell 40+ removes standard system tray (StatusNotifierItem) support by default. Users installing OpenWhisper on GNOME do not see the microphone tray indicator unless they manually install a GNOME extension.
+- **Architectural Mitigation**:
+  1. **Pre-Flight Desktop Environment Detection**:
+     `openwhisper doctor` and `openwhisper setup` detect `XDG_CURRENT_DESKTOP=GNOME` and inform the user with the exact command to install the required extension:
+     ```bash
+     sudo dnf install gnome-shell-extension-appindicator # or apt install gnome-shell-extension-appindicator
+     ```
+  2. **Standalone Mini-Dock / Indicator Mode**:
+     Provide an optional minimal desktop dock pill or standalone HUD status indicator for desktop environments without system tray capabilities.
+

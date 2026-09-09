@@ -47,7 +47,20 @@ pub async fn run_ui_service(config: Config) -> Result<()> {
                         IpcEvent::StateChanged { state } => match state {
                             DaemonState::Idle => {
                                 tray_ctrl.set_state(TrayState::Idle);
-                                hud_ctrl.set_idle();
+                                // Completed and Error states have their own timed fadeout lifecycle;
+                                // only reset to Idle if we were actively Recording or Transcribing.
+                                let should_idle = {
+                                    let lock = hud_ctrl.model();
+                                    let model = lock.read().unwrap();
+                                    matches!(
+                                        model.state,
+                                        crate::hud::HudState::Recording { .. }
+                                            | crate::hud::HudState::Transcribing { .. }
+                                    )
+                                };
+                                if should_idle {
+                                    hud_ctrl.set_idle();
+                                }
                             }
                             DaemonState::Recording { device } => {
                                 tray_ctrl.set_state(TrayState::Recording);

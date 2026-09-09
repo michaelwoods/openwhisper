@@ -107,26 +107,29 @@ impl HudModel {
             HudState::Transcribing { .. } => 1.0,
             HudState::Completed { completed_at, .. } => {
                 let elapsed = now.saturating_duration_since(*completed_at).as_secs_f32();
-                let hold_duration = 1.2;
-                let fade_duration = 0.6;
+                let hold_duration = 2.2;
+                let fade_duration = 0.7;
 
                 if elapsed <= hold_duration {
                     1.0
                 } else if elapsed < hold_duration + fade_duration {
-                    1.0 - ((elapsed - hold_duration) / fade_duration).clamp(0.0, 1.0)
+                    let progress = ((elapsed - hold_duration) / fade_duration).clamp(0.0, 1.0);
+                    // Smoothstep easing for gentle start and end of fadeout: 3*t^2 - 2*t^3
+                    1.0 - (progress * progress * (3.0 - 2.0 * progress))
                 } else {
                     0.0
                 }
             }
             HudState::Error { error_at, .. } => {
                 let elapsed = now.saturating_duration_since(*error_at).as_secs_f32();
-                let hold_duration = 2.0;
+                let hold_duration = 2.8;
                 let fade_duration = 0.8;
 
                 if elapsed <= hold_duration {
                     1.0
                 } else if elapsed < hold_duration + fade_duration {
-                    1.0 - ((elapsed - hold_duration) / fade_duration).clamp(0.0, 1.0)
+                    let progress = ((elapsed - hold_duration) / fade_duration).clamp(0.0, 1.0);
+                    1.0 - (progress * progress * (3.0 - 2.0 * progress))
                 } else {
                     0.0
                 }
@@ -300,9 +303,9 @@ pub fn run_hud_demo(once: bool) -> anyhow::Result<()> {
             ctrl_demo.set_transcribing();
             std::thread::sleep(Duration::from_millis(1400));
 
-            // 3. Completed state
+            // 3. Completed state (hold for 2.2s + fade for 0.7s)
             ctrl_demo.set_completed("Preview: OpenWhisper HUD overlay active");
-            std::thread::sleep(Duration::from_millis(2200));
+            std::thread::sleep(Duration::from_millis(3200));
 
             // 4. Idle state
             ctrl_demo.set_idle();
@@ -392,17 +395,17 @@ mod tests {
         // At t0: alpha is 1.0
         assert_eq!(model.calculate_alpha(t0), 1.0);
 
-        // At t0 + 1.0s: still in hold period (1.2s)
-        assert_eq!(model.calculate_alpha(t0 + Duration::from_secs(1)), 1.0);
+        // At t0 + 1.5s: still in hold period (2.2s)
+        assert_eq!(model.calculate_alpha(t0 + Duration::from_millis(1500)), 1.0);
 
-        // At t0 + 1.5s: mid fadeout (between 1.2 and 1.8)
-        let alpha_mid = model.calculate_alpha(t0 + Duration::from_millis(1500));
+        // At t0 + 2.5s: mid fadeout (between 2.2 and 2.9s)
+        let alpha_mid = model.calculate_alpha(t0 + Duration::from_millis(2500));
         assert!(alpha_mid > 0.0 && alpha_mid < 1.0);
 
-        // At t0 + 2.0s: completely faded out
-        let alpha_end = model.calculate_alpha(t0 + Duration::from_millis(2000));
+        // At t0 + 3.1s: completely faded out
+        let alpha_end = model.calculate_alpha(t0 + Duration::from_millis(3100));
         assert_eq!(alpha_end, 0.0);
-        assert!(!model.is_visible(t0 + Duration::from_millis(2000)));
+        assert!(!model.is_visible(t0 + Duration::from_millis(3100)));
     }
 
     #[test]
@@ -431,17 +434,17 @@ mod tests {
         // At t0: alpha is 1.0
         assert_eq!(model.calculate_alpha(t0), 1.0);
 
-        // At t0 + 1.5s: still holding (hold is 2.0s)
-        assert_eq!(model.calculate_alpha(t0 + Duration::from_millis(1500)), 1.0);
+        // At t0 + 2.0s: still holding (hold is 2.8s)
+        assert_eq!(model.calculate_alpha(t0 + Duration::from_millis(2000)), 1.0);
 
-        // At t0 + 2.4s: mid fadeout (fade is between 2.0 and 2.8s)
-        let alpha_mid = model.calculate_alpha(t0 + Duration::from_millis(2400));
+        // At t0 + 3.2s: mid fadeout (fade is between 2.8 and 3.6s)
+        let alpha_mid = model.calculate_alpha(t0 + Duration::from_millis(3200));
         assert!(alpha_mid > 0.0 && alpha_mid < 1.0);
 
-        // At t0 + 3.0s: fully hidden
-        let alpha_end = model.calculate_alpha(t0 + Duration::from_millis(3000));
+        // At t0 + 3.8s: fully hidden
+        let alpha_end = model.calculate_alpha(t0 + Duration::from_millis(3800));
         assert_eq!(alpha_end, 0.0);
-        assert!(!model.is_visible(t0 + Duration::from_millis(3000)));
+        assert!(!model.is_visible(t0 + Duration::from_millis(3800)));
     }
 
     #[test]

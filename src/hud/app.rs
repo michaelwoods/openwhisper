@@ -114,35 +114,83 @@ impl eframe::App for HudApp {
             }
         }
 
-        if alpha <= 0.01 {
+        if alpha <= 0.005 {
             // Window is completely transparent/idle.
             // Do not schedule busy repaints when idle to save CPU/battery.
             // When user starts recording, `controller.set_recording()` wakes up egui via `request_repaint()`.
             return;
         }
 
-        // Render floating pill container
-        let rect = Rect::from_min_size(Pos2::new(4.0, 4.0), Vec2::new(282.0, 40.0));
+        // Calculate dynamic entrance slide and exit settle
+        let (slide_y, entrance_alpha) = match &state {
+            HudState::Recording { started_at, .. } => {
+                let t = now.saturating_duration_since(*started_at).as_secs_f32();
+                let p = (t / 0.18).clamp(0.0, 1.0);
+                // Quadratic ease-out entrance: slides upward 4px while fading in
+                let ease = 1.0 - (1.0 - p) * (1.0 - p);
+                ((1.0 - ease) * 4.0, ease)
+            }
+            HudState::Completed { completed_at, .. } => {
+                let elapsed = now.saturating_duration_since(*completed_at).as_secs_f32();
+                let hold_duration = 2.2;
+                let fade_duration = 0.7;
+                if elapsed > hold_duration {
+                    let p = ((elapsed - hold_duration) / fade_duration).clamp(0.0, 1.0);
+                    // Gentle 3px downward settle during fadeout
+                    (p * p * 3.0, 1.0)
+                } else {
+                    (0.0, 1.0)
+                }
+            }
+            HudState::Error { error_at, .. } => {
+                let elapsed = now.saturating_duration_since(*error_at).as_secs_f32();
+                let hold_duration = 2.8;
+                let fade_duration = 0.8;
+                if elapsed > hold_duration {
+                    let p = ((elapsed - hold_duration) / fade_duration).clamp(0.0, 1.0);
+                    (p * p * 3.0, 1.0)
+                } else {
+                    (0.0, 1.0)
+                }
+            }
+            _ => (0.0, 1.0),
+        };
+
+        let effective_alpha = (alpha * entrance_alpha).clamp(0.0, 1.0);
+        if effective_alpha <= 0.005 {
+            return;
+        }
+
+        // Render floating pill container with vertical transition translation
+        let rect = Rect::from_min_size(Pos2::new(4.0, 4.0 + slide_y), Vec2::new(282.0, 40.0));
         let painter = ui.painter();
 
+        // Soft ambient drop-shadow / elevation halo
+        let shadow_rect = rect.expand(2.0);
+        painter.rect_filled(
+            shadow_rect,
+            22.0,
+            Color32::from_rgba_unmultiplied(0, 0, 0, (65.0 * effective_alpha) as u8),
+        );
+
         // Background color and subtle border glow
-        let bg_color = Color32::from_rgba_unmultiplied(15, 23, 42, (230.0 * alpha) as u8);
+        let bg_color = Color32::from_rgba_unmultiplied(15, 23, 42, (232.0 * effective_alpha) as u8);
         let border_stroke = match &state {
             HudState::Recording { .. } => Stroke::new(
-                1.0,
-                Color32::from_rgba_unmultiplied(239, 68, 68, (140.0 * alpha) as u8),
+                1.2,
+                Color32::from_rgba_unmultiplied(239, 68, 68, (150.0 * effective_alpha) as u8),
             ),
             HudState::Transcribing { .. } => Stroke::new(
-                1.0,
-                Color32::from_rgba_unmultiplied(56, 189, 248, (140.0 * alpha) as u8),
+                1.2,
+                Color32::from_rgba_unmultiplied(56, 189, 248, (150.0 * effective_alpha) as u8),
             ),
             HudState::Completed { .. } => Stroke::new(
-                1.0,
-                Color32::from_rgba_unmultiplied(34, 197, 94, (140.0 * alpha) as u8),
+                1.2,
+                Color32::from_rgba_unmultiplied(34, 197, 94, (150.0 * effective_alpha) as u8),
             ),
             HudState::Error { .. } => Stroke::new(
-                1.0,
-                Color32::from_rgba_unmultiplied(245, 158, 11, (140.0 * alpha) as u8),
+                1.2,
+                Color32::from_rgba_unmultiplied(245, 158, 11, (150.0 * effective_alpha) as u8),
             ),
             HudState::Idle => Stroke::NONE,
         };
@@ -174,12 +222,12 @@ impl eframe::App for HudApp {
                 painter.circle_filled(
                     dot_center,
                     glow_radius,
-                    Color32::from_rgba_unmultiplied(239, 68, 68, (80.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(239, 68, 68, (80.0 * effective_alpha) as u8),
                 );
                 painter.circle_filled(
                     dot_center,
                     4.0,
-                    Color32::from_rgba_unmultiplied(239, 68, 68, (255.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(239, 68, 68, (255.0 * effective_alpha) as u8),
                 );
 
                 // "Listening" label
@@ -188,7 +236,7 @@ impl eframe::App for HudApp {
                     egui::Align2::LEFT_CENTER,
                     "Listening",
                     egui::FontId::proportional(13.0),
-                    Color32::from_rgba_unmultiplied(241, 245, 249, (255.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(241, 245, 249, (255.0 * effective_alpha) as u8),
                 );
 
                 // Elapsed timer
@@ -197,10 +245,12 @@ impl eframe::App for HudApp {
                     egui::Align2::LEFT_CENTER,
                     timer_text,
                     egui::FontId::monospace(12.0),
-                    Color32::from_rgba_unmultiplied(148, 163, 184, (240.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(148, 163, 184, (240.0 * effective_alpha) as u8),
                 );
 
-                // 5-bar dynamic audio visualizer
+                // 5-bar dynamic audio visualizer with entrance ramp
+                let t_secs = elapsed.as_secs_f32();
+                let bar_scale = (t_secs / 0.18).clamp(0.0, 1.0);
                 let bar_start_x = rect.max.x - 65.0;
                 let bar_width = 3.5;
                 let bar_spacing = 3.0;
@@ -212,7 +262,8 @@ impl eframe::App for HudApp {
                         .sin()
                         * 0.5
                         + 0.5;
-                    let height = 4.0 + (smoothed_rms * 16.0 * (0.6 + 0.4 * phase)).clamp(0.0, 18.0);
+                    let height = 4.0
+                        + (smoothed_rms * 16.0 * (0.6 + 0.4 * phase) * bar_scale).clamp(0.0, 18.0);
                     let bar_x = bar_start_x + i as f32 * (bar_width + bar_spacing);
                     let bar_rect = Rect::from_min_max(
                         Pos2::new(bar_x, center_y - height / 2.0),
@@ -223,7 +274,7 @@ impl eframe::App for HudApp {
                         239,
                         68,
                         68,
-                        ((140.0 + smoothed_rms * 115.0) * alpha) as u8,
+                        ((140.0 + smoothed_rms * 115.0) * effective_alpha) as u8,
                     );
                     painter.rect_filled(bar_rect, 1.5, bar_color);
                 }
@@ -231,31 +282,36 @@ impl eframe::App for HudApp {
 
             HudState::Transcribing { started_at } => {
                 let elapsed = now.saturating_duration_since(started_at).as_secs_f32();
+                let trans_in = (elapsed / 0.18).clamp(0.0, 1.0);
+                let trans_ease = 1.0 - (1.0 - trans_in) * (1.0 - trans_in);
+                let state_alpha = effective_alpha * trans_ease;
+
                 let pulse = (elapsed * 6.0).sin() * 0.5 + 0.5;
 
-                // Cyan acoustic dot
+                // Cyan acoustic dot with gentle scale
                 let dot_center = Pos2::new(rect.min.x + 18.0, center_y);
                 painter.circle_filled(
                     dot_center,
                     5.0 + pulse * 2.0,
-                    Color32::from_rgba_unmultiplied(56, 189, 248, (80.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(56, 189, 248, (80.0 * state_alpha) as u8),
                 );
                 painter.circle_filled(
                     dot_center,
                     4.0,
-                    Color32::from_rgba_unmultiplied(56, 189, 248, (255.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(56, 189, 248, (255.0 * state_alpha) as u8),
                 );
 
-                // "Transcribing..." text
+                // "Transcribing..." text with subtle entrance slide
+                let text_x = rect.min.x + 30.0 + (1.0 - trans_ease) * 4.0;
                 painter.text(
-                    Pos2::new(rect.min.x + 30.0, center_y),
+                    Pos2::new(text_x, center_y),
                     egui::Align2::LEFT_CENTER,
                     "Transcribing...",
                     egui::FontId::proportional(13.0),
-                    Color32::from_rgba_unmultiplied(56, 189, 248, (255.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(56, 189, 248, (255.0 * state_alpha) as u8),
                 );
 
-                // Wave progress dots
+                // Wave progress dots with cascading pulse
                 let dots_start_x = rect.max.x - 55.0;
                 for i in 0..4 {
                     let dot_pulse =
@@ -268,37 +324,84 @@ impl eframe::App for HudApp {
                             56,
                             189,
                             248,
-                            (220.0 * dot_pulse * alpha) as u8,
+                            (220.0 * dot_pulse * state_alpha) as u8,
                         ),
                     );
                 }
             }
 
-            HudState::Completed { text_preview, .. } => {
-                // Crisp antialiased vector checkmark (zero font dependency)
+            HudState::Completed {
+                text_preview,
+                completed_at,
+            } => {
+                let elapsed = now.saturating_duration_since(completed_at).as_secs_f32();
+                let comp_in = (elapsed / 0.20).clamp(0.0, 1.0);
+                let comp_ease = 1.0 - (1.0 - comp_in) * (1.0 - comp_in);
+                let state_alpha = effective_alpha * comp_ease;
+
+                // Subtle green confirmation pulse ripple on arrival
+                if elapsed < 0.45 {
+                    let ripple_p = (elapsed / 0.45).clamp(0.0, 1.0);
+                    let ripple_r = 6.0 + ripple_p * 10.0;
+                    let ripple_alpha = (1.0 - ripple_p) * 85.0 * effective_alpha;
+                    painter.circle_filled(
+                        Pos2::new(rect.min.x + 18.0, center_y),
+                        ripple_r,
+                        Color32::from_rgba_unmultiplied(34, 197, 94, ripple_alpha as u8),
+                    );
+                }
+
+                // Smoothly animated checkmark drawing sequence (220ms duration)
                 let check_color =
-                    Color32::from_rgba_unmultiplied(34, 197, 94, (255.0 * alpha) as u8);
+                    Color32::from_rgba_unmultiplied(34, 197, 94, (255.0 * state_alpha) as u8);
                 let p_start = Pos2::new(rect.min.x + 13.0, center_y);
                 let p_mid = Pos2::new(rect.min.x + 17.0, center_y + 4.0);
-                let p_end = Pos2::new(rect.min.x + 23.0, center_y - 4.0);
-                let stroke = Stroke::new(2.0, check_color);
-                painter.line_segment([p_start, p_mid], stroke);
-                painter.line_segment([p_mid, p_end], stroke);
+                let p_end = Pos2::new(rect.min.x + 24.0, center_y - 4.0);
+                let stroke = Stroke::new(2.2, check_color);
 
-                // Truncated preview text
+                if elapsed < 0.09 {
+                    // Segment 1 interpolating
+                    let p1 = (elapsed / 0.09).clamp(0.0, 1.0);
+                    let curr_mid = Pos2::new(
+                        p_start.x + (p_mid.x - p_start.x) * p1,
+                        p_start.y + (p_mid.y - p_start.y) * p1,
+                    );
+                    painter.line_segment([p_start, curr_mid], stroke);
+                } else if elapsed < 0.22 {
+                    // Segment 1 complete, segment 2 interpolating
+                    painter.line_segment([p_start, p_mid], stroke);
+                    let p2 = ((elapsed - 0.09) / 0.13).clamp(0.0, 1.0);
+                    let curr_end = Pos2::new(
+                        p_mid.x + (p_end.x - p_mid.x) * p2,
+                        p_mid.y + (p_end.y - p_mid.y) * p2,
+                    );
+                    painter.line_segment([p_mid, curr_end], stroke);
+                } else {
+                    // Both segments fully rendered
+                    painter.line_segment([p_start, p_mid], stroke);
+                    painter.line_segment([p_mid, p_end], stroke);
+                }
+
+                // Truncated preview text with gentle slide-in
+                let text_x = rect.min.x + 32.0 + (1.0 - comp_ease) * 4.0;
                 painter.text(
-                    Pos2::new(rect.min.x + 32.0, center_y),
+                    Pos2::new(text_x, center_y),
                     egui::Align2::LEFT_CENTER,
                     &text_preview,
                     egui::FontId::proportional(12.5),
-                    Color32::from_rgba_unmultiplied(241, 245, 249, (240.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(241, 245, 249, (240.0 * state_alpha) as u8),
                 );
             }
 
-            HudState::Error { message, .. } => {
-                // Crisp antialiased vector warning sign (zero font dependency)
+            HudState::Error { message, error_at } => {
+                let elapsed = now.saturating_duration_since(error_at).as_secs_f32();
+                let err_in = (elapsed / 0.20).clamp(0.0, 1.0);
+                let err_ease = 1.0 - (1.0 - err_in) * (1.0 - err_in);
+                let state_alpha = effective_alpha * err_ease;
+
+                // Crisp antialiased vector warning sign with subtle pulse
                 let warn_color =
-                    Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * alpha) as u8);
+                    Color32::from_rgba_unmultiplied(245, 158, 11, (255.0 * state_alpha) as u8);
                 let warn_center = Pos2::new(rect.min.x + 18.0, center_y);
                 painter.circle_stroke(warn_center, 6.5, Stroke::new(1.5, warn_color));
                 painter.line_segment(
@@ -315,20 +418,21 @@ impl eframe::App for HudApp {
                 );
 
                 let error_trunc = crate::notification::safe_truncate_chars(&message, 30);
+                let text_x = rect.min.x + 32.0 + (1.0 - err_ease) * 4.0;
 
                 painter.text(
-                    Pos2::new(rect.min.x + 32.0, center_y),
+                    Pos2::new(text_x, center_y),
                     egui::Align2::LEFT_CENTER,
                     error_trunc,
                     egui::FontId::proportional(12.0),
-                    Color32::from_rgba_unmultiplied(248, 113, 113, (240.0 * alpha) as u8),
+                    Color32::from_rgba_unmultiplied(248, 113, 113, (240.0 * state_alpha) as u8),
                 );
             }
 
             HudState::Idle => {}
         }
 
-        // Animate at ~40 FPS while active
-        ui.ctx().request_repaint_after(Duration::from_millis(25));
+        // Animate at ~60 FPS while active for fluid micro-animations
+        ui.ctx().request_repaint_after(Duration::from_millis(16));
     }
 }

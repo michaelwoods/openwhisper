@@ -105,9 +105,11 @@ fi
 
 echo "==> Installing desktop entries..."
 APP_DIR="$HOME/.local/share/applications"
-mkdir -p "$APP_DIR"
+mkdir -p "$APP_DIR" "$HOME/.config/autostart"
 install -Dm644 desktop/net.local.openwhisper.desktop "$APP_DIR/net.local.openwhisper.desktop"
 install -Dm644 desktop/net.local.openwhisper.settings.desktop "$APP_DIR/net.local.openwhisper.settings.desktop"
+install -Dm644 desktop/net.local.openwhisper-ui.desktop "$APP_DIR/net.local.openwhisper-ui.desktop"
+install -Dm644 desktop/net.local.openwhisper-ui.desktop "$HOME/.config/autostart/net.local.openwhisper-ui.desktop"
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
@@ -115,18 +117,19 @@ elif command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$APP_DIR" 2>/dev/null || true
 fi
 
-echo "==> Installing systemd user service..."
+echo "==> Installing systemd user services..."
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SYSTEMD_USER_DIR"
 install -Dm644 systemd/openwhisper.service "$SYSTEMD_USER_DIR/openwhisper.service"
+install -Dm644 systemd/openwhisper-ui.service "$SYSTEMD_USER_DIR/openwhisper-ui.service"
 
-echo "==> Reloading and restarting openwhisper.service..."
+echo "==> Reloading and restarting user services..."
 if [ -d "/run/user/$(id -u)" ]; then
     export XDG_RUNTIME_DIR="/run/user/$(id -u)"
     export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
     systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable openwhisper.service 2>/dev/null || true
-    systemctl --user restart openwhisper.service 2>/dev/null || true
+    systemctl --user enable openwhisper.service openwhisper-ui.service 2>/dev/null || true
+    systemctl --user restart openwhisper.service openwhisper-ui.service 2>/dev/null || true
 fi
 
 echo "==> Installation complete! OpenWhisper is updated and running."

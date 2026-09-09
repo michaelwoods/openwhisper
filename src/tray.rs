@@ -13,6 +13,7 @@ pub enum TrayState {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Clone)]
 pub struct OpenWhisperTray {
     pub state: Arc<RwLock<TrayState>>,
     pub socket_path: String,
@@ -426,7 +427,7 @@ impl ksni::Tray for OpenWhisperTray {
 #[derive(Clone)]
 pub struct TrayController {
     #[cfg(target_os = "linux")]
-    handle: Option<ksni::Handle<OpenWhisperTray>>,
+    handle: Arc<RwLock<Option<ksni::Handle<OpenWhisperTray>>>>,
     state: Arc<RwLock<TrayState>>,
     history: Arc<RwLock<VecDeque<String>>>,
     server_url: Arc<RwLock<String>>,
@@ -439,6 +440,27 @@ impl TrayController {
     #[cfg(target_os = "linux")]
     pub fn new(
         handle: Option<ksni::Handle<OpenWhisperTray>>,
+        state: Arc<RwLock<TrayState>>,
+        history: Arc<RwLock<VecDeque<String>>>,
+        server_url: Arc<RwLock<String>>,
+        last_latency: Arc<RwLock<Option<f32>>>,
+        last_error: Arc<RwLock<Option<String>>>,
+        active_device: Arc<RwLock<Option<String>>>,
+    ) -> Self {
+        Self {
+            handle: Arc::new(RwLock::new(handle)),
+            state,
+            history,
+            server_url,
+            last_latency,
+            last_error,
+            active_device,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn with_handle_slot(
+        handle: Arc<RwLock<Option<ksni::Handle<OpenWhisperTray>>>>,
         state: Arc<RwLock<TrayState>>,
         history: Arc<RwLock<VecDeque<String>>>,
         server_url: Arc<RwLock<String>>,
@@ -481,7 +503,9 @@ impl TrayController {
             *lock = new_state;
         }
         #[cfg(target_os = "linux")]
-        if let Some(ref handle) = self.handle {
+        if let Ok(guard) = self.handle.read()
+            && let Some(ref handle) = *guard
+        {
             let handle = handle.clone();
             tokio::spawn(async move {
                 handle
@@ -505,7 +529,9 @@ impl TrayController {
             *lock = error.clone();
         }
         #[cfg(target_os = "linux")]
-        if let Some(ref handle) = self.handle {
+        if let Ok(guard) = self.handle.read()
+            && let Some(ref handle) = *guard
+        {
             let handle = handle.clone();
             tokio::spawn(async move {
                 handle
@@ -529,7 +555,9 @@ impl TrayController {
             *lock = url.clone();
         }
         #[cfg(target_os = "linux")]
-        if let Some(ref handle) = self.handle {
+        if let Ok(guard) = self.handle.read()
+            && let Some(ref handle) = *guard
+        {
             let handle = handle.clone();
             tokio::spawn(async move {
                 handle
@@ -548,7 +576,9 @@ impl TrayController {
             *lock = dev.clone();
         }
         #[cfg(target_os = "linux")]
-        if let Some(ref handle) = self.handle {
+        if let Ok(guard) = self.handle.read()
+            && let Some(ref handle) = *guard
+        {
             let handle = handle.clone();
             tokio::spawn(async move {
                 handle
@@ -578,7 +608,9 @@ impl TrayController {
             }
         }
         #[cfg(target_os = "linux")]
-        if let Some(ref handle) = self.handle {
+        if let Ok(guard) = self.handle.read()
+            && let Some(ref handle) = *guard
+        {
             let handle = handle.clone();
             tokio::spawn(async move {
                 handle.update(|_| {}).await;
@@ -619,40 +651,47 @@ pub async fn start_tray_service(
             last_error.clone(),
             active_device.clone(),
         );
-        match tray.spawn().await {
-            Ok(handle) => {
-                info!("System tray (StatusNotifierItem) initialized successfully.");
-                (
-                    TrayController::new(
-                        Some(handle),
-                        state.clone(),
-                        history,
-                        server_url_arc,
-                        last_latency,
-                        last_error,
-                        active_device,
-                    ),
-                    state,
-                )
+
+        let handle_slot = Arc::new(RwLock::new(None));
+        let handle_slot_clone = handle_slot.clone();
+
+        tokio::spawn(async move {
+            let mut backoff_ms = 500;
+            loop {
+                match tray.clone().spawn().await {
+                    Ok(handle) => {
+                        info!(
+                            "System tray (StatusNotifierItem) initialized and registered successfully."
+                        );
+                        if let Ok(mut lock) = handle_slot_clone.write() {
+                            *lock = Some(handle);
+                        }
+                        break;
+                    }
+                    Err(err) => {
+                        tracing::debug!(
+                            "StatusNotifierWatcher not yet ready (retrying in {}ms): {err}",
+                            backoff_ms
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
+                        backoff_ms = (backoff_ms * 2).min(3000);
+                    }
+                }
             }
-            Err(err) => {
-                warn!(
-                    "StatusNotifierWatcher not available or failed to register tray: {err}. Running without system tray."
-                );
-                (
-                    TrayController::new(
-                        None,
-                        state.clone(),
-                        history,
-                        server_url_arc,
-                        last_latency,
-                        last_error,
-                        active_device,
-                    ),
-                    state,
-                )
-            }
-        }
+        });
+
+        (
+            TrayController::with_handle_slot(
+                handle_slot,
+                state.clone(),
+                history,
+                server_url_arc,
+                last_latency,
+                last_error,
+                active_device,
+            ),
+            state,
+        )
     }
 
     #[cfg(not(target_os = "linux"))]

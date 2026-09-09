@@ -72,14 +72,18 @@ Transcriptions are powered by any OpenAI-compatible speech-to-text endpoint, inc
   - Virtual keyboard keystroke typing via `/dev/uinput` with shift modifier management and 2ms cadence.
   - Fallback clipboard insertion (`wl-copy` with `arboard` fallback) with synthetic `Ctrl+V` keypress.
   - Pure-Rust system PATH resolution (`std::env::split_paths`) with zero external subprocess overhead.
-- 🔌 **Stream-Framed Unix Domain Socket IPC**:
+- 🔌 **Stream-Framed Unix Domain Socket IPC & Decoupled Architecture**:
   - Newline-delimited JSON streaming protocol parsed with buffered async readers, eliminating packet truncation and socket fragmentation.
+  - **Decoupled Headless Core & UI Service**: The core dictation daemon runs headlessly (`openwhisper daemon`, `openwhisper.service`) immune to display restarts, while a dedicated graphical UI process (`openwhisper ui`, `openwhisper-ui.service`) connects to the daemon's live event stream to host the vector system tray icon and floating HUD overlay.
+- 🚀 **Autostart & Session Management (`openwhisper autostart`)**:
+  - Single-command inspection and configuration of startup units: `openwhisper autostart [--enable | --disable | --json]`.
+  - Seamless toggle in the Settings GUI under **System Integration** to enable or disable automatic launch on system login across both `systemd --user` and XDG Autostart standards.
 - 🧪 **Test Infrastructure & Continuous Integration**:
-  - 110 automated tests covering unit functions, CLI commands (`assert_cmd`), and end-to-end Whisper transcription flows with mock servers (`wiremock`).
+  - 116 automated tests covering unit functions, CLI commands (`assert_cmd`), and end-to-end Whisper transcription flows with mock servers (`wiremock`).
   - Unified CI workflow compatible with both GitHub Actions and local Forgejo Actions runners.
 - 🛠️ **Automated Setup Phase**:
   - One-command setup via `openwhisper setup`, `make install`, or `scripts/install.sh`.
-  - Automates binary installation, Freedesktop icon theme deployment, `.desktop` menu registration, and user systemd service management.
+  - Automates binary installation, Freedesktop icon theme deployment, `.desktop` menu registration, and user systemd service management for both daemon and UI services.
 
 ---
 

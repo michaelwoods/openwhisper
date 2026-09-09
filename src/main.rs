@@ -1,4 +1,5 @@
 use openwhisper::audio;
+use openwhisper::autostart;
 use openwhisper::cli;
 use openwhisper::config;
 use openwhisper::doctor;
@@ -11,6 +12,7 @@ use openwhisper::output;
 use openwhisper::setup;
 use openwhisper::transcribe;
 use openwhisper::tray;
+use openwhisper::ui_service;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -44,7 +46,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = Config::load_or_default();
 
-    match cli.command.unwrap_or(Commands::Daemon { config: None }) {
+    match cli.command.unwrap_or(Commands::Daemon {
+        config: None,
+        with_ui: false,
+    }) {
         Commands::InitConfig => {
             let path = Config::config_path()?;
             if path.exists() {
@@ -340,7 +345,36 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Daemon { config: cfg_path } => {
+        Commands::Ui => {
+            ui_service::run_ui_service(config).await?;
+            Ok(())
+        }
+
+        Commands::Autostart {
+            enable,
+            disable,
+            json,
+        } => {
+            if enable {
+                autostart::enable()?;
+                println!("✅ OpenWhisper launch at startup enabled successfully.");
+            } else if disable {
+                autostart::disable()?;
+                println!("✅ OpenWhisper launch at startup disabled.");
+            } else if json {
+                let st = autostart::status();
+                println!("{}", serde_json::to_string_pretty(&st)?);
+            } else {
+                let st = autostart::status();
+                print!("{}", autostart::format_status_report(&st));
+            }
+            Ok(())
+        }
+
+        Commands::Daemon {
+            config: cfg_path,
+            with_ui,
+        } => {
             let active_config = if let Some(p) = cfg_path {
                 let content = std::fs::read_to_string(&p)
                     .with_context(|| format!("Failed to read config file at {}", p))?;
@@ -349,7 +383,7 @@ async fn main() -> Result<()> {
                 config
             };
 
-            run_daemon(active_config).await
+            run_daemon(active_config, with_ui).await
         }
     }
 }
@@ -431,7 +465,149 @@ async fn run_standalone_record(
     Ok(())
 }
 
-async fn run_daemon(config: Config) -> Result<()> {
+struct UiBridge {
+    event_tx: tokio::sync::broadcast::Sender<hotkey::IpcEvent>,
+    tray: Option<tray::TrayController>,
+    hud: Option<hud::HudController>,
+}
+
+impl UiBridge {
+    fn new(
+        event_tx: tokio::sync::broadcast::Sender<hotkey::IpcEvent>,
+        tray: Option<tray::TrayController>,
+        hud: Option<hud::HudController>,
+    ) -> Self {
+        Self {
+            event_tx,
+            tray,
+            hud,
+        }
+    }
+
+    fn set_recording(&self, device: Option<String>) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::StateChanged {
+            state: hotkey::DaemonState::Recording {
+                device: device.clone(),
+            },
+        });
+        if let Some(ref t) = self.tray {
+            t.set_state(tray::TrayState::Recording);
+            t.set_active_device(device);
+        }
+        if let Some(ref h) = self.hud {
+            h.set_recording();
+        }
+    }
+
+    fn set_degraded(&self, reason: &str, device: Option<String>) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::StateChanged {
+            state: hotkey::DaemonState::Degraded {
+                reason: reason.to_string(),
+            },
+        });
+        if let Some(ref t) = self.tray {
+            t.set_state(tray::TrayState::Degraded);
+            t.set_active_device(device);
+        }
+        if let Some(ref h) = self.hud {
+            h.set_recording();
+        }
+    }
+
+    fn update_audio_level(&self, rms: f32) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::AudioLevel { rms });
+        if let Some(ref h) = self.hud {
+            h.update_audio_level(rms);
+        }
+    }
+
+    fn set_transcribing(&self) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::StateChanged {
+            state: hotkey::DaemonState::Transcribing,
+        });
+        if let Some(ref t) = self.tray {
+            t.set_state(tray::TrayState::Transcribing);
+        }
+        if let Some(ref h) = self.hud {
+            h.set_transcribing();
+        }
+    }
+
+    fn set_completed(&self, text: &str, duration_secs: f32) {
+        let _ = self
+            .event_tx
+            .send(hotkey::IpcEvent::TranscriptionCompleted {
+                text: text.to_string(),
+                duration_secs,
+            });
+        let _ = self.event_tx.send(hotkey::IpcEvent::StateChanged {
+            state: hotkey::DaemonState::Idle,
+        });
+        if let Some(ref t) = self.tray {
+            t.set_diagnostics(Some(duration_secs), None);
+            t.set_state(tray::TrayState::Idle);
+            t.add_history(text.to_string());
+        }
+        if let Some(ref h) = self.hud {
+            h.set_completed(text);
+        }
+    }
+
+    fn set_error(&self, message: &str) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::StateChanged {
+            state: hotkey::DaemonState::Error {
+                message: message.to_string(),
+            },
+        });
+        if let Some(ref t) = self.tray {
+            t.set_diagnostics(None, Some(message.to_string()));
+            t.set_state(tray::TrayState::Error);
+        }
+        if let Some(ref h) = self.hud {
+            h.set_error(message);
+        }
+    }
+
+    fn set_idle(&self) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::StateChanged {
+            state: hotkey::DaemonState::Idle,
+        });
+        if let Some(ref t) = self.tray {
+            t.set_state(tray::TrayState::Idle);
+        }
+        if let Some(ref h) = self.hud {
+            h.set_idle();
+        }
+    }
+
+    fn update_config(&self, new_cfg: &Config) {
+        let _ = self.event_tx.send(hotkey::IpcEvent::Diagnostics {
+            server_url: new_cfg.server_url.clone(),
+            active_device: new_cfg.audio_device.clone(),
+            last_latency: None,
+            last_error: None,
+        });
+        if let Some(ref t) = self.tray {
+            t.set_server_url(new_cfg.server_url.clone());
+        }
+        if let Some(ref h) = self.hud {
+            h.set_enabled(new_cfg.hud_enabled);
+            h.set_position(new_cfg.hud_position);
+        }
+    }
+}
+
+async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
+    // Single-instance guard: if another daemon is already running, exit cleanly
+    if let Ok(resp) = hotkey::ipc::send_ipc_command_sync(&config.socket_path, IpcCommand::Status) {
+        println!(
+            "OpenWhisper daemon is already running (socket responsive: {}).",
+            resp.status
+        );
+        println!("Use `openwhisper status` or `openwhisper toggle` to interact with it.");
+        return Ok(());
+    }
+
     tracing::info!("Starting OpenWhisper daemon...");
     tracing::info!("STT Endpoint: {}", config.server_url);
     tracing::info!("Model: {}", config.model);
@@ -440,8 +616,18 @@ async fn run_daemon(config: Config) -> Result<()> {
     tracing::info!("Sound feedback: {}", config.sound_feedback);
     tracing::info!("VAD enabled: {}", config.vad_enabled);
     tracing::info!("Formatting mode: {:?}", config.formatting_mode);
+    tracing::info!(
+        "UI Mode: {}",
+        if with_ui {
+            "Unified (In-process Tray + HUD)"
+        } else {
+            "Headless (IPC Event Stream)"
+        }
+    );
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<IpcCommand>(32);
+    let (event_tx, _event_rx) = tokio::sync::broadcast::channel::<hotkey::IpcEvent>(128);
+
     let notifications = Arc::new(RwLock::new(NotificationManager::new(
         config.show_notifications,
     )));
@@ -459,8 +645,12 @@ async fn run_daemon(config: Config) -> Result<()> {
     }
     let mut active_config = config;
 
-    // Spawn IPC Unix Socket Server
-    let ipc_server = IpcServer::new(active_config.socket_path.clone(), cmd_tx.clone());
+    // Spawn IPC Unix Socket Server with Event Stream broadcaster
+    let ipc_server = IpcServer::new(
+        active_config.socket_path.clone(),
+        cmd_tx.clone(),
+        Some(event_tx.clone()),
+    );
     tokio::spawn(async move {
         if let Err(err) = ipc_server.run().await {
             tracing::error!("IPC server error: {err}");
@@ -482,6 +672,20 @@ async fn run_daemon(config: Config) -> Result<()> {
         None
     };
 
+    // Initialize in-process Tray & HUD only if with_ui is enabled
+    let (tray_ctrl, hud_ctrl) = if with_ui {
+        let (tray, _) = tray::start_tray_service(
+            active_config.socket_path.clone(),
+            active_config.server_url.clone(),
+        )
+        .await;
+        let hud = hud::start_hud_service(active_config.hud_enabled, active_config.hud_position);
+        (Some(tray), Some(hud))
+    } else {
+        (None, None)
+    };
+    let bridge = Arc::new(UiBridge::new(event_tx, tray_ctrl, hud_ctrl));
+
     tracing::info!("OpenWhisper daemon ready! Waiting for hotkey / IPC events...");
     println!("OpenWhisper daemon running in background.");
     println!("Trigger via:");
@@ -495,16 +699,9 @@ async fn run_daemon(config: Config) -> Result<()> {
     println!("  • CLI: `openwhisper toggle`");
     println!("  • CLI: `openwhisper ptt-down` (press) & `openwhisper ptt-up` (release)");
     println!("  • CLI: `openwhisper reload` (reloads config without restarting)");
-
-    // Initialize StatusNotifierItem System Tray
-    let (tray_ctrl, _) = tray::start_tray_service(
-        active_config.socket_path.clone(),
-        active_config.server_url.clone(),
-    )
-    .await;
-
-    // Initialize Floating HUD Overlay
-    let hud_ctrl = hud::start_hud_service(active_config.hud_enabled, active_config.hud_position);
+    if !with_ui {
+        println!("  • UI service: run `openwhisper ui` to show system tray icon and HUD overlay.");
+    }
 
     while let Some(cmd) = cmd_rx.recv().await {
         tracing::info!("Daemon event loop received: {:?}", cmd);
@@ -520,6 +717,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                     tracing::info!("Status requested: current state is {:?}", state);
                     Action::None
                 }
+                IpcCommand::Subscribe => Action::None,
                 IpcCommand::ReloadConfig => {
                     tracing::info!(
                         "ReloadConfig IPC command received. Reloading configuration from disk..."
@@ -535,9 +733,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                 .set_enabled(new_cfg.show_notifications);
                             output_mgr.lock().await.update_config(&new_cfg);
                             eng.set_ptt_threshold_ms(new_cfg.ptt_threshold_ms);
-                            hud_ctrl.set_enabled(new_cfg.hud_enabled);
-                            hud_ctrl.set_position(new_cfg.hud_position);
-                            tray_ctrl.set_server_url(new_cfg.server_url.clone());
+                            bridge.update_config(&new_cfg);
                             #[cfg(target_os = "linux")]
                             crate::setup::sync_kwin_hud_position(new_cfg.hud_position);
 
@@ -584,20 +780,21 @@ async fn run_daemon(config: Config) -> Result<()> {
                     tracing::info!(
                         "PreviewHud IPC command received. Triggering 1-shot HUD demo preview..."
                     );
-                    let ctrl = hud_ctrl.clone();
+                    let bridge_preview = bridge.clone();
                     tokio::spawn(async move {
-                        ctrl.set_recording();
+                        bridge_preview.set_recording(None);
                         for i in 0..50 {
                             let t = i as f32 * 0.05;
                             let rms = ((t * 4.0).sin() * 0.5 + 0.5) * 0.08 + 0.01;
-                            ctrl.update_audio_level(rms);
+                            bridge_preview.update_audio_level(rms);
                             tokio::time::sleep(Duration::from_millis(50)).await;
                         }
-                        ctrl.set_transcribing();
+                        bridge_preview.set_transcribing();
                         tokio::time::sleep(Duration::from_millis(1400)).await;
-                        ctrl.set_completed("Preview: OpenWhisper HUD overlay active");
+                        bridge_preview
+                            .set_completed("Preview: OpenWhisper HUD overlay active", 1.4);
                         tokio::time::sleep(Duration::from_millis(2200)).await;
-                        ctrl.set_idle();
+                        bridge_preview.set_idle();
                     });
                     Action::None
                 }
@@ -617,16 +814,13 @@ async fn run_daemon(config: Config) -> Result<()> {
                                 "Preferred microphone unavailable; recording using fallback microphone: {}",
                                 rec.device_name()
                             );
-                            tray_ctrl.set_active_device(Some(format!(
-                                "{} (Fallback)",
-                                rec.device_name()
-                            )));
-                            tray_ctrl.set_state(tray::TrayState::Degraded);
+                            bridge.set_degraded(
+                                "Fallback microphone in use",
+                                Some(format!("{} (Fallback)", rec.device_name())),
+                            );
                         } else {
-                            tray_ctrl.set_active_device(Some(rec.device_name().to_string()));
-                            tray_ctrl.set_state(tray::TrayState::Recording);
+                            bridge.set_recording(Some(rec.device_name().to_string()));
                         }
-                        hud_ctrl.set_recording();
 
                         let sample_buf = rec.sample_buffer();
                         let is_rec_handle = rec.is_recording_handle();
@@ -638,7 +832,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                         let cmd_tx_vad = cmd_tx.clone();
                         let vad_cfg = active_config.vad_config();
                         let vad_enabled = active_config.vad_enabled;
-                        let hud_ctrl_monitor = hud_ctrl.clone();
+                        let bridge_monitor = bridge.clone();
 
                         tokio::spawn(async move {
                             let mut detector = if vad_enabled {
@@ -669,7 +863,7 @@ async fn run_daemon(config: Config) -> Result<()> {
 
                                 if !chunk.is_empty() {
                                     let rms = VadDetector::calculate_rms(&chunk);
-                                    hud_ctrl_monitor.update_audio_level(rms);
+                                    bridge_monitor.update_audio_level(rms);
 
                                     if let Some(ref mut d) = detector
                                         && d.process_chunk(&chunk, Instant::now())
@@ -687,8 +881,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                     }
                     Err(err) => {
                         tracing::error!("Failed to start recording: {err}");
-                        tray_ctrl.set_state(tray::TrayState::Error);
-                        hud_ctrl.set_error(&format!("Mic error: {err}"));
+                        bridge.set_error(&format!("Mic error: {err}"));
                         notifications
                             .read()
                             .await
@@ -702,8 +895,7 @@ async fn run_daemon(config: Config) -> Result<()> {
 
             Action::StopAndTranscribe => {
                 tracing::info!("Action: StopAndTranscribe");
-                tray_ctrl.set_state(tray::TrayState::Transcribing);
-                hud_ctrl.set_transcribing();
+                bridge.set_transcribing();
                 notifications.read().await.transcribing();
                 sound.read().await.play(EarconType::RecordingStopped);
 
@@ -718,8 +910,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                     let notif_clone = Arc::clone(&notifications);
                     let sound_clone = Arc::clone(&sound);
                     let engine_clone = Arc::clone(&engine);
-                    let tray_ctrl_clone = tray_ctrl.clone();
-                    let hud_ctrl_clone = hud_ctrl.clone();
+                    let bridge_clone = Arc::clone(&bridge);
                     let history_mgr_clone = Arc::clone(&history_mgr);
 
                     let noise_suppression = active_config.noise_suppression;
@@ -786,10 +977,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                             );
                                         }
 
-                                        tray_ctrl_clone.set_diagnostics(Some(duration), None);
-                                        tray_ctrl_clone.set_state(tray::TrayState::Idle);
-                                        tray_ctrl_clone.add_history(text.clone());
-                                        hud_ctrl_clone.set_completed(&text);
+                                        bridge_clone.set_completed(&text, duration);
                                         notif_clone.read().await.transcribed(&text);
                                         sound_clone.read().await.play(EarconType::Transcribed);
 
@@ -825,14 +1013,11 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         };
 
                                         tracing::error!("Transcription error: {err}");
-                                        tray_ctrl_clone
-                                            .set_diagnostics(None, Some(descriptive_msg.clone()));
-                                        tray_ctrl_clone.set_state(tray::TrayState::Error);
-                                        hud_ctrl_clone.set_error(&descriptive_msg);
-                                        let reset_ctrl = tray_ctrl_clone.clone();
+                                        bridge_clone.set_error(&descriptive_msg);
+                                        let reset_bridge = bridge_clone.clone();
                                         tokio::spawn(async move {
                                             tokio::time::sleep(Duration::from_secs(3)).await;
-                                            reset_ctrl.set_state(tray::TrayState::Idle);
+                                            reset_bridge.set_idle();
                                         });
                                         notif_clone.read().await.error(&descriptive_msg);
                                         sound_clone.read().await.play(EarconType::Error);
@@ -841,11 +1026,8 @@ async fn run_daemon(config: Config) -> Result<()> {
                             }
                             Err(err) => {
                                 let descriptive_msg = format!("Audio encoding error: {err}");
-                                tray_ctrl_clone
-                                    .set_diagnostics(None, Some(descriptive_msg.clone()));
                                 tracing::error!("Audio stop/encoding error: {err}");
-                                tray_ctrl_clone.set_state(tray::TrayState::Error);
-                                hud_ctrl_clone.set_error(&descriptive_msg);
+                                bridge_clone.set_error(&descriptive_msg);
                                 notif_clone.read().await.error(&descriptive_msg);
                                 sound_clone.read().await.play(EarconType::Error);
                             }
@@ -855,8 +1037,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                         eng.on_transcription_finished();
                     });
                 } else {
-                    tray_ctrl.set_state(tray::TrayState::Idle);
-                    hud_ctrl.set_idle();
+                    bridge.set_idle();
                     let mut eng = engine.lock().await;
                     eng.on_transcription_finished();
                 }
@@ -864,8 +1045,7 @@ async fn run_daemon(config: Config) -> Result<()> {
 
             Action::CancelRecording => {
                 tracing::info!("Action: CancelRecording");
-                tray_ctrl.set_state(tray::TrayState::Idle);
-                hud_ctrl.set_idle();
+                bridge.set_idle();
                 let mut guard = active_recording.lock().await;
                 *guard = None;
                 notifications.read().await.error("Recording cancelled");

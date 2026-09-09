@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=OpenWhisper UI
+GenericName=Dictation Assistant UI
+Comment=Zero-latency speech-to-text system tray and HUD overlay
+Exec=openwhisper ui
+Icon=openwhisper
+Terminal=false
+Type=Application
+Categories=Utility;AudioVideo;Audio;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+X-LXQt-Need-Tray=true

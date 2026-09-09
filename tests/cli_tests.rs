@@ -98,3 +98,35 @@ fn test_cli_doctor_json() {
     assert!(checks.iter().any(|c| c["name"] == "Configuration"));
     assert!(checks.iter().any(|c| c["name"] == "Audio Hardware"));
 }
+
+#[test]
+fn test_cli_autostart_help() {
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    cmd.args(["autostart", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("startup"));
+}
+
+#[test]
+fn test_cli_autostart_json() {
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    let output = cmd
+        .args(["autostart", "--json"])
+        .output()
+        .expect("run autostart --json");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("autostart --json must output valid JSON");
+    assert!(parsed.get("daemon_systemd_enabled").is_some());
+    assert!(parsed.get("ui_systemd_enabled").is_some());
+}
+
+#[test]
+fn test_cli_ui_help() {
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    cmd.args(["ui", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("HUD"));
+}

@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenWhisper System Tray & HUD Overlay
+PartOf=graphical-session.target
+After=graphical-session.target openwhisper.service
+Requisite=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/openwhisper ui
+Restart=on-failure
+RestartSec=2
+Environment=RUST_LOG=info
+PassEnvironment=WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP
+
+[Install]
+WantedBy=graphical-session.target

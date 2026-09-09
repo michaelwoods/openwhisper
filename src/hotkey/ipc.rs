@@ -6,7 +6,38 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::mpsc::Sender;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DaemonState {
+    Idle,
+    Recording { device: Option<String> },
+    Transcribing,
+    Degraded { reason: String },
+    Error { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum IpcEvent {
+    StateChanged {
+        state: DaemonState,
+    },
+    AudioLevel {
+        rms: f32,
+    },
+    TranscriptionCompleted {
+        text: String,
+        duration_secs: f32,
+    },
+    Diagnostics {
+        server_url: String,
+        active_device: Option<String>,
+        last_latency: Option<f32>,
+        last_error: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum IpcCommand {
     Toggle,
@@ -16,6 +47,7 @@ pub enum IpcCommand {
     Status,
     ReloadConfig,
     PreviewHud,
+    Subscribe,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,13 +59,19 @@ pub struct IpcResponse {
 pub struct IpcServer {
     socket_path: String,
     cmd_tx: Sender<IpcCommand>,
+    event_tx: Option<tokio::sync::broadcast::Sender<IpcEvent>>,
 }
 
 impl IpcServer {
-    pub fn new(socket_path: String, cmd_tx: Sender<IpcCommand>) -> Self {
+    pub fn new(
+        socket_path: String,
+        cmd_tx: Sender<IpcCommand>,
+        event_tx: Option<tokio::sync::broadcast::Sender<IpcEvent>>,
+    ) -> Self {
         Self {
             socket_path,
             cmd_tx,
+            event_tx,
         }
     }
 
@@ -54,6 +92,7 @@ impl IpcServer {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let cmd_tx = self.cmd_tx.clone();
+                    let event_tx = self.event_tx.clone();
                     tokio::spawn(async move {
                         let (reader, mut writer) = stream.into_split();
                         let mut buf_reader = tokio::io::BufReader::new(reader);
@@ -65,27 +104,84 @@ impl IpcServer {
                             let cmd_str = line.trim();
                             if !cmd_str.is_empty() {
                                 let cmd = parse_ipc_command(cmd_str);
-                                let res = if let Some(c) = cmd {
-                                    let is_reload = matches!(c, IpcCommand::ReloadConfig);
-                                    let _ = cmd_tx.send(c).await;
-                                    let message = if is_reload {
-                                        "Configuration reloaded successfully".to_string()
-                                    } else {
-                                        "command processed".to_string()
-                                    };
-                                    IpcResponse {
-                                        status: "ok".to_string(),
-                                        message,
+                                match cmd {
+                                    Some(IpcCommand::Subscribe) => {
+                                        // Acknowledge subscription
+                                        let res = IpcResponse {
+                                            status: "ok".to_string(),
+                                            message: "subscribed".to_string(),
+                                        };
+                                        if let Ok(mut res_bytes) = serde_json::to_vec(&res) {
+                                            res_bytes.push(b'\n');
+                                            let _ = writer.write_all(&res_bytes).await;
+                                        }
+
+                                        // If an event broadcaster is provided, stream events until client disconnects
+                                        if let Some(ref tx) = event_tx {
+                                            let mut rx = tx.subscribe();
+                                            line.clear();
+                                            loop {
+                                                tokio::select! {
+                                                    read_res = buf_reader.read_line(&mut line) => {
+                                                        match read_res {
+                                                            Ok(0) | Err(_) => break,
+                                                            Ok(_) => {
+                                                                let text = line.trim();
+                                                                if !text.is_empty()
+                                                                    && let Some(c) = parse_ipc_command(text)
+                                                                {
+                                                                    let _ = cmd_tx.send(c).await;
+                                                                }
+                                                                line.clear();
+                                                            }
+                                                        }
+                                                    }
+                                                    event_res = rx.recv() => {
+                                                        match event_res {
+                                                            Ok(event) => {
+                                                                if let Ok(mut bytes) = serde_json::to_vec(&event) {
+                                                                    bytes.push(b'\n');
+                                                                    if writer.write_all(&bytes).await.is_err() {
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        break;
                                     }
-                                } else {
-                                    IpcResponse {
-                                        status: "error".to_string(),
-                                        message: format!("unknown command: {}", cmd_str),
+                                    Some(c) => {
+                                        let is_reload = matches!(c, IpcCommand::ReloadConfig);
+                                        let _ = cmd_tx.send(c).await;
+                                        let message = if is_reload {
+                                            "Configuration reloaded successfully".to_string()
+                                        } else {
+                                            "command processed".to_string()
+                                        };
+                                        let res = IpcResponse {
+                                            status: "ok".to_string(),
+                                            message,
+                                        };
+                                        if let Ok(mut res_bytes) = serde_json::to_vec(&res) {
+                                            res_bytes.push(b'\n');
+                                            let _ = writer.write_all(&res_bytes).await;
+                                        }
                                     }
-                                };
-                                if let Ok(mut res_bytes) = serde_json::to_vec(&res) {
-                                    res_bytes.push(b'\n');
-                                    let _ = writer.write_all(&res_bytes).await;
+                                    None => {
+                                        let res = IpcResponse {
+                                            status: "error".to_string(),
+                                            message: format!("unknown command: {}", cmd_str),
+                                        };
+                                        if let Ok(mut res_bytes) = serde_json::to_vec(&res) {
+                                            res_bytes.push(b'\n');
+                                            let _ = writer.write_all(&res_bytes).await;
+                                        }
+                                    }
                                 }
                             }
                             line.clear();
@@ -124,6 +220,7 @@ pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
         "status" => Some(IpcCommand::Status),
         "reload" | "reload-config" | "reload_config" => Some(IpcCommand::ReloadConfig),
         "preview-hud" | "preview_hud" | "preview" => Some(IpcCommand::PreviewHud),
+        "subscribe" | "events" | "listen" => Some(IpcCommand::Subscribe),
         _ => None,
     }
 }
@@ -183,6 +280,60 @@ pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcRe
 #[cfg(not(target_os = "linux"))]
 pub fn send_ipc_command_sync(_socket_path: &str, _cmd: IpcCommand) -> Result<IpcResponse> {
     anyhow::bail!("IPC not supported on this platform")
+}
+
+/// Bidirectional streaming IPC client connected to the OpenWhisper daemon.
+/// Subscribes to daemon events (state changes, audio RMS levels, transcriptions)
+/// and allows sending commands back over the same persistent connection.
+pub struct EventStream {
+    reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>,
+    writer: tokio::net::unix::OwnedWriteHalf,
+}
+
+impl EventStream {
+    pub async fn connect(socket_path: &str) -> Result<Self> {
+        let stream = UnixStream::connect(socket_path).await.with_context(|| {
+            format!("Failed to connect to OpenWhisper daemon at {}", socket_path)
+        })?;
+        let (reader, mut writer) = stream.into_split();
+        let mut req = serde_json::to_vec(&IpcCommand::Subscribe)?;
+        req.push(b'\n');
+        writer.write_all(&req).await?;
+
+        let mut buf_reader = tokio::io::BufReader::new(reader);
+        let mut first_line = String::new();
+        buf_reader
+            .read_line(&mut first_line)
+            .await
+            .context("Failed to receive subscription confirmation from OpenWhisper daemon")?;
+
+        Ok(Self {
+            reader: buf_reader,
+            writer,
+        })
+    }
+
+    pub async fn next_event(&mut self) -> Result<Option<IpcEvent>> {
+        let mut line = String::new();
+        let n = self.reader.read_line(&mut line).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        let event = serde_json::from_str::<IpcEvent>(trimmed)
+            .with_context(|| format!("Failed to parse IpcEvent from line: {trimmed}"))?;
+        Ok(Some(event))
+    }
+
+    pub async fn send_command(&mut self, cmd: IpcCommand) -> Result<()> {
+        let mut payload = serde_json::to_vec(&cmd)?;
+        payload.push(b'\n');
+        self.writer.write_all(&payload).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -292,7 +443,7 @@ mod tests {
         let sock_str = sock_path.to_string_lossy().to_string();
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-        let server = IpcServer::new(sock_str.clone(), tx);
+        let server = IpcServer::new(sock_str.clone(), tx, None);
         let server_handle = tokio::spawn(server.run());
 
         // Wait briefly for server to bind
@@ -316,6 +467,57 @@ mod tests {
             .unwrap();
             assert_eq!(resp_sync.status, "ok");
         }
+
+        server_handle.abort();
+        let _ = std::fs::remove_file(sock_path);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_ipc_event_stream_subscription() {
+        let temp_dir = std::env::temp_dir();
+        let sock_path = temp_dir.join(format!("ow_test_events_{}.sock", std::process::id()));
+        let sock_str = sock_path.to_string_lossy().to_string();
+
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(10);
+        let (event_tx, _event_rx) = tokio::sync::broadcast::channel(16);
+        let server = IpcServer::new(sock_str.clone(), cmd_tx, Some(event_tx.clone()));
+        let server_handle = tokio::spawn(server.run());
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        tokio::spawn(async move { while let Some(_cmd) = cmd_rx.recv().await {} });
+
+        // Connect subscriber stream
+        let mut stream = EventStream::connect(&sock_str)
+            .await
+            .expect("connect stream");
+
+        // Broadcast test events
+        event_tx
+            .send(IpcEvent::StateChanged {
+                state: DaemonState::Recording {
+                    device: Some("Mic 1".into()),
+                },
+            })
+            .expect("send state event");
+
+        event_tx
+            .send(IpcEvent::AudioLevel { rms: 0.42 })
+            .expect("send audio level");
+
+        // Receive events on subscriber
+        let ev1 = stream.next_event().await.unwrap().expect("event 1");
+        assert_eq!(
+            ev1,
+            IpcEvent::StateChanged {
+                state: DaemonState::Recording {
+                    device: Some("Mic 1".into())
+                }
+            }
+        );
+
+        let ev2 = stream.next_event().await.unwrap().expect("event 2");
+        assert_eq!(ev2, IpcEvent::AudioLevel { rms: 0.42 });
 
         server_handle.abort();
         let _ = std::fs::remove_file(sock_path);

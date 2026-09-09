@@ -68,6 +68,8 @@ openwhisper/
 │   ├── doctor.rs              # Pre-flight diagnostic engine (6 subsystem health checks)
 │   ├── notification.rs        # Thread-safe desktop notifications via libnotify
 │   ├── setup.rs               # Automated setup, asset deployment, systemd registration
+│   ├── autostart.rs           # Autostart inspector and manager (systemd & XDG desktop)
+│   ├── ui_service.rs          # Standalone graphical UI runner (Tray + HUD over IPC stream)
 │   ├── tray.rs                # StatusNotifierItem system tray implementation via ksni
 │   ├── audio/
 │   │   ├── mod.rs             # Audio subsystem orchestration and device discovery
@@ -88,7 +90,7 @@ openwhisper/
 │   │   ├── mod.rs             # Hotkey module coordinator
 │   │   ├── state.rs           # Push-To-Talk vs Hands-Free Toggle state machine
 │   │   ├── evdev_listener.rs  # Direct Linux hardware event monitor (/dev/input/event*)
-│   │   ├── ipc.rs             # Unix domain socket server/client with newline framing
+│   │   ├── ipc.rs             # Unix domain socket server/client with newline framing & events
 │   │   └── portal.rs          # XDG Desktop Portal GlobalShortcuts fallback
 │   ├── history/
 │   │   ├── mod.rs             # SQLite WAL-mode durable transcription history store
@@ -105,7 +107,12 @@ openwhisper/
 │   ├── cli_tests.rs           # assert_cmd CLI subcommand suite
 │   └── pipeline_integration_test.rs # wiremock end-to-end STT transcription pipeline
 ├── systemd/
-│   └── openwhisper.service    # User systemd service unit
+│   ├── openwhisper.service    # User systemd service unit (headless core daemon)
+│   └── openwhisper-ui.service # User systemd service unit (graphical UI & tray)
+├── desktop/
+│   ├── net.local.openwhisper.desktop          # Toggle dictation launcher
+│   ├── net.local.openwhisper.settings.desktop # Settings panel launcher
+│   └── net.local.openwhisper-ui.desktop       # Graphical UI service launcher & autostart
 └── assets/icons/              # Scalable SVG vector icons (app & tray states)
 ```
 

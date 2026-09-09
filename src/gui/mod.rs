@@ -127,6 +127,7 @@ pub fn config_to_ui(
         HudPosition::TopRight => 3,
     };
     ui.set_hud_position_index(hud_pos_idx);
+    ui.set_autostart_enabled(crate::autostart::is_enabled());
 
     // 5. VAD & Formatting Properties
     ui.set_vad_enabled(config.vad_enabled);
@@ -633,6 +634,17 @@ pub fn run_gui(config: Config) -> Result<()> {
 
                     #[cfg(target_os = "linux")]
                     crate::setup::sync_kwin_hud_position(cfg.hud_position);
+
+                    let autostart_target = ui.get_autostart_enabled();
+                    if autostart_target != crate::autostart::is_enabled() {
+                        if autostart_target {
+                            if let Err(e) = crate::autostart::enable() {
+                                tracing::warn!("Failed to enable autostart from settings GUI: {e}");
+                            }
+                        } else if let Err(e) = crate::autostart::disable() {
+                            tracing::warn!("Failed to disable autostart from settings GUI: {e}");
+                        }
+                    }
 
                     let ui_clr = ui.as_weak();
                     slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {

@@ -15,6 +15,10 @@ pub enum Commands {
         /// Optional path to config file
         #[arg(short, long)]
         config: Option<String>,
+
+        /// Run system tray and HUD overlay within the daemon process (unified mode)
+        #[arg(long, default_value_t = false)]
+        with_ui: bool,
     },
 
     /// Toggle dictation on/off (sends toggle signal to running daemon)
@@ -125,6 +129,25 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+
+    /// Run OpenWhisper graphical UI service (System Tray icon & Floating HUD overlay)
+    #[command(alias = "tray")]
+    Ui,
+
+    /// Manage automatic launch at startup (systemd user services and XDG autostart)
+    Autostart {
+        /// Enable launch at startup
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+
+        /// Disable launch at startup
+        #[arg(long, conflicts_with = "enable")]
+        disable: bool,
+
+        /// Output autostart status formatted as JSON
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 #[cfg(test)]
@@ -227,6 +250,38 @@ mod tests {
                 assert_eq!(play, Some(42));
             }
             _ => panic!("Expected Commands::History with play"),
+        }
+    }
+
+    #[test]
+    fn test_cli_ui_command() {
+        let ui = Cli::try_parse_from(["openwhisper", "ui"]).unwrap();
+        assert!(matches!(ui.command, Some(Commands::Ui)));
+
+        let tray = Cli::try_parse_from(["openwhisper", "tray"]).unwrap();
+        assert!(matches!(tray.command, Some(Commands::Ui)));
+    }
+
+    #[test]
+    fn test_cli_autostart_command() {
+        let status = Cli::try_parse_from(["openwhisper", "autostart"]).unwrap();
+        match status.command {
+            Some(Commands::Autostart {
+                enable,
+                disable,
+                json,
+            }) => {
+                assert!(!enable);
+                assert!(!disable);
+                assert!(!json);
+            }
+            _ => panic!("Expected Commands::Autostart"),
+        }
+
+        let enable = Cli::try_parse_from(["openwhisper", "autostart", "--enable"]).unwrap();
+        match enable.command {
+            Some(Commands::Autostart { enable, .. }) => assert!(enable),
+            _ => panic!("Expected Commands::Autostart with enable"),
         }
     }
 }

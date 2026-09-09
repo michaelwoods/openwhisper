@@ -20,9 +20,13 @@ const TRAY_ERROR_ICON: &str = include_str!("../assets/icons/openwhisper-tray-err
 #[cfg(target_os = "linux")]
 const SERVICE_UNIT: &str = include_str!("../systemd/openwhisper.service");
 #[cfg(target_os = "linux")]
+const UI_SERVICE_UNIT: &str = include_str!("../systemd/openwhisper-ui.service");
+#[cfg(target_os = "linux")]
 const TOGGLE_DESKTOP: &str = include_str!("../desktop/net.local.openwhisper.desktop");
 #[cfg(target_os = "linux")]
 const SETTINGS_DESKTOP: &str = include_str!("../desktop/net.local.openwhisper.settings.desktop");
+#[cfg(target_os = "linux")]
+const UI_DESKTOP: &str = include_str!("../desktop/net.local.openwhisper-ui.desktop");
 
 fn get_home_dir() -> PathBuf {
     directories::BaseDirs::new()
@@ -179,8 +183,10 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
         app_dir.join("net.local.openwhisper.settings.desktop"),
         SETTINGS_DESKTOP,
     );
+    let _ = fs::write(app_dir.join("net.local.openwhisper-ui.desktop"), UI_DESKTOP);
     println!("   ✓ Registered net.local.openwhisper.desktop (Dictation Toggle shortcut)");
     println!("   ✓ Registered net.local.openwhisper.settings.desktop (Settings GUI panel)");
+    println!("   ✓ Registered net.local.openwhisper-ui.desktop (System Tray & Overlay UI)");
 
     // Refresh desktop/icon database if utilities are installed
     if has_command_in_path("kbuildsycoca6") {
@@ -466,13 +472,26 @@ pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
 
 #[cfg(target_os = "linux")]
 fn install_linux_systemd(home: &Path) -> Result<()> {
-    println!("⚙️  Step 5: Configuring systemd user service...");
+    println!("⚙️  Step 5: Configuring systemd user service & autostart...");
     let systemd_dir = home.join(".config/systemd/user");
     let _ = fs::create_dir_all(&systemd_dir);
     let unit_path = systemd_dir.join("openwhisper.service");
     fs::write(&unit_path, SERVICE_UNIT)
         .with_context(|| format!("Failed to write service unit to {}", unit_path.display()))?;
     println!("   ✓ Installed {}", unit_path.display());
+
+    let ui_unit_path = systemd_dir.join("openwhisper-ui.service");
+    fs::write(&ui_unit_path, UI_SERVICE_UNIT)
+        .with_context(|| format!("Failed to write service unit to {}", ui_unit_path.display()))?;
+    println!("   ✓ Installed {}", ui_unit_path.display());
+
+    let autostart_dir = home.join(".config/autostart");
+    let _ = fs::create_dir_all(&autostart_dir);
+    let _ = fs::write(
+        autostart_dir.join("net.local.openwhisper-ui.desktop"),
+        UI_DESKTOP,
+    );
+    println!("   ✓ Installed XDG Autostart entry in ~/.config/autostart");
 
     if has_command_in_path("systemctl") {
         let mut reload_cmd = std::process::Command::new("systemctl");
@@ -484,7 +503,8 @@ fn install_linux_systemd(home: &Path) -> Result<()> {
         enable_cmd
             .arg("--user")
             .arg("enable")
-            .arg("openwhisper.service");
+            .arg("openwhisper.service")
+            .arg("openwhisper-ui.service");
         apply_systemd_env(&mut enable_cmd);
         let _ = enable_cmd.output();
 
@@ -492,11 +512,12 @@ fn install_linux_systemd(home: &Path) -> Result<()> {
         restart_cmd
             .arg("--user")
             .arg("restart")
-            .arg("openwhisper.service");
+            .arg("openwhisper.service")
+            .arg("openwhisper-ui.service");
         apply_systemd_env(&mut restart_cmd);
         let _ = restart_cmd.output();
 
-        println!("   ✓ systemd user service reloaded, enabled, and restarted.");
+        println!("   ✓ systemd user services reloaded, enabled, and restarted.");
     } else {
         println!("   ⚠️  systemctl not found in PATH; skipping service activation.");
     }

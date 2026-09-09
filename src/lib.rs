@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod autostart;
 pub mod cli;
 pub mod config;
 pub mod doctor;
@@ -11,3 +12,4 @@ pub mod output;
 pub mod setup;
 pub mod transcribe;
 pub mod tray;
+pub mod ui_service;

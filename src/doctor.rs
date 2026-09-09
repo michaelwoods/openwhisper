@@ -436,6 +436,15 @@ pub fn check_wayland_and_input() -> CheckResult {
 /// 5. Background Daemon & IPC Socket check
 pub async fn check_daemon_and_ipc(config: &Config) -> CheckResult {
     let mut details = vec![format!("Socket path: {}", config.socket_path)];
+    let autostart_st = crate::autostart::status();
+    details.push(format!(
+        "Autostart status: Daemon systemd: (enabled={}, active={}), UI systemd: (enabled={}, active={}), XDG autostart: (installed={})",
+        autostart_st.daemon_systemd_enabled,
+        autostart_st.daemon_systemd_active,
+        autostart_st.ui_systemd_enabled,
+        autostart_st.ui_systemd_active,
+        autostart_st.xdg_autostart_installed,
+    ));
 
     match send_ipc_command(&config.socket_path, IpcCommand::Status).await {
         Ok(resp) => {
@@ -512,6 +521,22 @@ pub fn check_desktop_integration() -> CheckResult {
         ));
     } else {
         missing.push("Desktop entry missing in ~/.local/share/applications");
+    }
+
+    let ui_desktop_path = home.join(".local/share/applications/net.local.openwhisper-ui.desktop");
+    if ui_desktop_path.exists() {
+        details.push(format!(
+            "UI service desktop entry: Found at {}",
+            ui_desktop_path.display()
+        ));
+    }
+
+    let autostart_desktop = home.join(".config/autostart/net.local.openwhisper-ui.desktop");
+    if autostart_desktop.exists() {
+        details.push(format!(
+            "XDG Autostart entry: Active at {}",
+            autostart_desktop.display()
+        ));
     }
 
     // Check KWin rules on KDE

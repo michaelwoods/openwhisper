@@ -28,6 +28,7 @@ export component SettingsWindow inherits Window {
 
     in-out property <bool> hud-enabled: true;
     in-out property <int> hud-position-index: 0; // 0 = bottom_center, 1 = top_center, 2 = bottom_right, 3 = top_right
+    in-out property <bool> autostart-enabled: false;
 
     in-out property <bool> vad-enabled: false;
     in-out property <int> vad-silence-timeout: 1800;
@@ -405,6 +406,18 @@ export component SettingsWindow inherits Window {
                                             clicked => { root.preview-hud(); }
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "System Integration";
+                            VerticalBox {
+                                alignment: start;
+                                spacing: 8px;
+                                CheckBox {
+                                    text: "Launch OpenWhisper automatically at startup (systemd & autostart)";
+                                    checked <=> root.autostart-enabled;
                                 }
                             }
                         }

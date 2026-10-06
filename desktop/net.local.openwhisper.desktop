@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=OpenWhisper Dictation Toggle
 Comment=Toggle speech-to-text dictation
-Exec=/home/mike/.local/bin/openwhisper toggle
+Exec=openwhisper toggle
 Icon=openwhisper
 Terminal=false
 Type=Application

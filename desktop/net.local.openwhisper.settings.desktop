@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=OpenWhisper Settings
 Comment=Configure OpenWhisper speech-to-text dictation
-Exec=/home/mike/.local/bin/openwhisper config-gui
+Exec=openwhisper config-gui
 Icon=openwhisper
 Terminal=false
 Type=Application

@@ -816,7 +816,7 @@ mod tests {
         original.prompt = Some("Biasing prompt".to_string());
         original.audio_device = Some("USB Audio Interface".to_string());
         original.noise_suppression = true;
-        original.save_audio_dir = Some("/home/mike/TTS_Recordings".to_string());
+        original.save_audio_dir = Some("/home/user/TTS_Recordings".to_string());
         original.evdev_hotkey_enabled = true;
         original.evdev_hotkey = "KEY_F12".to_string();
         original.ptt_threshold_ms = 400;

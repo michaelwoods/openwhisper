@@ -7,6 +7,7 @@ pub mod gui;
 pub mod history;
 pub mod hotkey;
 pub mod hud;
+pub mod lock;
 pub mod notification;
 pub mod output;
 pub mod setup;

@@ -71,6 +71,7 @@ openwhisper/
 │   ├── autostart.rs           # Autostart inspector and manager (systemd & XDG desktop)
 │   ├── ui_service.rs          # Standalone graphical UI runner (Tray + HUD over IPC stream)
 │   ├── tray.rs                # StatusNotifierItem system tray implementation via ksni
+│   ├── lock.rs                # Process-level single-instance lock via kernel flock(2)
 │   ├── audio/
 │   │   ├── mod.rs             # Audio subsystem orchestration and device discovery
 │   │   ├── recorder.rs        # cpal input stream with lock-free SPSC ring buffer

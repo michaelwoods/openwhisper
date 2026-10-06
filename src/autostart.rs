@@ -16,6 +16,7 @@ StartupNotify=false
 X-GNOME-Autostart-enabled=true
 X-KDE-autostart-after=panel
 X-LXQt-Need-Tray=true
+X-systemd-skip=true
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,9 +101,7 @@ pub fn enable() -> Result<()> {
 
         // Ensure systemd units exist
         let daemon_unit = systemd_dir.join("openwhisper.service");
-        if !daemon_unit.exists() {
-            let _ = fs::write(&daemon_unit, include_str!("../systemd/openwhisper.service"));
-        }
+        let _ = fs::write(&daemon_unit, include_str!("../systemd/openwhisper.service"));
 
         let ui_unit = systemd_dir.join("openwhisper-ui.service");
         let _ = fs::write(&ui_unit, include_str!("../systemd/openwhisper-ui.service"));
@@ -165,13 +164,25 @@ pub fn disable() -> Result<()> {
             .output();
 
         let _ = std::process::Command::new("systemctl")
-            .args(["--user", "stop", "openwhisper-ui.service"])
+            .args([
+                "--user",
+                "stop",
+                "openwhisper-ui.service",
+                "app-net.local.openwhisper\\x2dui@autostart.service",
+            ])
             .output();
     }
 
     let autostart_path = autostart_desktop_path();
     if autostart_path.exists() {
         let _ = fs::remove_file(autostart_path);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "daemon-reload"])
+            .output();
     }
 
     Ok(())

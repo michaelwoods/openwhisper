@@ -8,6 +8,7 @@ ExecStart=%h/.local/bin/openwhisper daemon
 Restart=on-failure
 RestartSec=3
 Environment=RUST_LOG=info
+PassEnvironment=WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP
 
 [Install]
 WantedBy=default.target

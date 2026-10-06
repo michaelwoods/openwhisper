@@ -10,6 +10,16 @@ use crate::tray::{self, TrayState};
 /// Runs the OpenWhisper Graphical UI service (System Tray icon & Floating HUD overlay).
 /// Connects to the headless daemon's IPC event stream and synchronizes desktop state.
 pub async fn run_ui_service(config: Config) -> Result<()> {
+    // Single-instance guard: ensure only one UI service (Tray + HUD) runs at any time
+    let _instance_lock = match crate::lock::SingleInstanceLock::try_acquire("openwhisper-ui") {
+        Ok(lock) => lock,
+        Err(reason) => {
+            println!("OpenWhisper UI service is already running ({reason}).");
+            tracing::info!("OpenWhisper UI instance guard: {reason}. Exiting gracefully.");
+            return Ok(());
+        }
+    };
+
     info!("Starting OpenWhisper UI service (System Tray & Floating HUD)...");
 
     // 1. Initialize Floating HUD Overlay (binds to WAYLAND_DISPLAY / DISPLAY if present)

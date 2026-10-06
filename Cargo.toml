@@ -1,6 +1,6 @@
 [package]
 name = "openwhisper"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 authors = ["Michael Woods", "OpenWhisper Contributors"]
@@ -52,6 +52,7 @@ zbus = { version = "5.5", features = ["tokio"] }
 evdev = "0.12"
 ksni = "0.3.6"
 winit = "0.30"
+libc = "0.2"
 
 [build-dependencies]
 slint-build = "1.17"

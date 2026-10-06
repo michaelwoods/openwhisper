@@ -349,26 +349,97 @@ fn strip_ansi(s: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
+fn apply_display_env(cmd: &mut std::process::Command) -> bool {
+    let mut has_display = false;
+
+    // 1. Wayland display detection
+    let wayland_disp = std::env::var("WAYLAND_DISPLAY")
+        .ok()
+        .filter(|s| !s.is_empty());
+    if let Some(wayland_disp) = wayland_disp {
+        cmd.env("WAYLAND_DISPLAY", &wayland_disp);
+        has_display = true;
+    } else {
+        // Probe XDG_RUNTIME_DIR for wayland-* sockets
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| {
+            let uid = unsafe { libc::getuid() };
+            format!("/run/user/{uid}")
+        });
+        let r_path = std::path::Path::new(&runtime_dir);
+        for i in 0..=4 {
+            let socket_name = format!("wayland-{i}");
+            if r_path.join(&socket_name).exists() {
+                cmd.env("WAYLAND_DISPLAY", &socket_name);
+                has_display = true;
+                break;
+            }
+        }
+    }
+
+    // 2. X11 display detection
+    let disp = std::env::var("DISPLAY").ok().filter(|s| !s.is_empty());
+    if let Some(disp) = disp {
+        cmd.env("DISPLAY", &disp);
+        has_display = true;
+    } else if std::path::Path::new("/tmp/.X11-unix/X0").exists() {
+        cmd.env("DISPLAY", ":0");
+        has_display = true;
+    }
+
+    // 3. XDG runtime directory and desktop environment variables
+    if let Some(runtime_dir) = std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
+    } else {
+        let uid = unsafe { libc::getuid() };
+        cmd.env("XDG_RUNTIME_DIR", format!("/run/user/{uid}"));
+    }
+
+    if let Some(bus) = std::env::var("DBUS_SESSION_BUS_ADDRESS")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        cmd.env("DBUS_SESSION_BUS_ADDRESS", &bus);
+    }
+
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .ok()
+        .filter(|s| !s.is_empty());
+    if let Some(desktop) = desktop {
+        cmd.env("XDG_CURRENT_DESKTOP", &desktop);
+    } else {
+        cmd.env("XDG_CURRENT_DESKTOP", "KDE");
+    }
+
+    has_display
+}
+
+#[cfg(target_os = "linux")]
 pub fn detect_screen_geometry() -> (i32, i32) {
     // 1. Try kscreen-doctor on KDE Wayland
-    if let Ok(output) = std::process::Command::new("kscreen-doctor")
-        .arg("-o")
-        .output()
-        && let Ok(text) = String::from_utf8(output.stdout)
-    {
-        for line in text.lines() {
-            if line.contains("Geometry:") {
-                let clean = strip_ansi(line);
-                for token in clean.split_whitespace() {
-                    if token.contains('x') && !token.contains('@') && !token.contains(',') {
-                        let parts: Vec<&str> = token.split('x').collect();
-                        if parts.len() == 2
-                            && let (Ok(w), Ok(h)) =
-                                (parts[0].parse::<i32>(), parts[1].parse::<i32>())
-                            && w >= 400
-                            && h >= 300
-                        {
-                            return (w, h);
+    let mut kscreen_cmd = std::process::Command::new("kscreen-doctor");
+    kscreen_cmd.arg("-o");
+    if apply_display_env(&mut kscreen_cmd) {
+        kscreen_cmd.env("QT_QPA_PLATFORM", "wayland;xcb");
+        if let Ok(output) = kscreen_cmd.output()
+            && let Ok(text) = String::from_utf8(output.stdout)
+        {
+            for line in text.lines() {
+                if line.contains("Geometry:") {
+                    let clean = strip_ansi(line);
+                    for token in clean.split_whitespace() {
+                        if token.contains('x') && !token.contains('@') && !token.contains(',') {
+                            let parts: Vec<&str> = token.split('x').collect();
+                            if parts.len() == 2
+                                && let (Ok(w), Ok(h)) =
+                                    (parts[0].parse::<i32>(), parts[1].parse::<i32>())
+                                && w >= 400
+                                && h >= 300
+                            {
+                                return (w, h);
+                            }
                         }
                     }
                 }
@@ -377,9 +448,10 @@ pub fn detect_screen_geometry() -> (i32, i32) {
     }
 
     // 2. Fallback: xrandr
-    if let Ok(output) = std::process::Command::new("xrandr")
-        .arg("--current")
-        .output()
+    let mut xrandr_cmd = std::process::Command::new("xrandr");
+    xrandr_cmd.arg("--current");
+    if apply_display_env(&mut xrandr_cmd)
+        && let Ok(output) = xrandr_cmd.output()
         && let Ok(text) = String::from_utf8(output.stdout)
     {
         for line in text.lines() {
@@ -431,29 +503,31 @@ pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
     };
 
     let pos_str = format!("{x},{y}");
-    let _ = std::process::Command::new(write_cmd)
-        .args([
-            "--file",
-            "kwinrulesrc",
-            "--group",
-            "openwhisper_hud",
-            "--key",
-            "position",
-            &pos_str,
-        ])
-        .output();
+    let mut write_pos = std::process::Command::new(write_cmd);
+    write_pos.args([
+        "--file",
+        "kwinrulesrc",
+        "--group",
+        "openwhisper_hud",
+        "--key",
+        "position",
+        &pos_str,
+    ]);
+    apply_display_env(&mut write_pos);
+    let _ = write_pos.output();
 
-    let _ = std::process::Command::new(write_cmd)
-        .args([
-            "--file",
-            "kwinrulesrc",
-            "--group",
-            "openwhisper_hud",
-            "--key",
-            "positionrule",
-            "2",
-        ])
-        .output();
+    let mut write_rule = std::process::Command::new(write_cmd);
+    write_rule.args([
+        "--file",
+        "kwinrulesrc",
+        "--group",
+        "openwhisper_hud",
+        "--key",
+        "positionrule",
+        "2",
+    ]);
+    apply_display_env(&mut write_rule);
+    let _ = write_rule.output();
 
     let qdbus_cmd = if has_command_in_path("qdbus-qt6") {
         Some("qdbus-qt6")
@@ -464,9 +538,10 @@ pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
     };
 
     if let Some(cmd) = qdbus_cmd {
-        let _ = std::process::Command::new(cmd)
-            .args(["org.kde.KWin", "/KWin", "reconfigure"])
-            .output();
+        let mut dbus_cmd = std::process::Command::new(cmd);
+        dbus_cmd.args(["org.kde.KWin", "/KWin", "reconfigure"]);
+        apply_display_env(&mut dbus_cmd);
+        let _ = dbus_cmd.output();
     }
 }
 

@@ -599,6 +599,30 @@ impl UiBridge {
 
 async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
     // Single-instance guard: if another daemon is already running, exit cleanly
+    let _instance_lock =
+        match openwhisper::lock::SingleInstanceLock::try_acquire("openwhisper-daemon") {
+            Ok(lock) => lock,
+            Err(reason) => {
+                println!("OpenWhisper daemon is already running ({reason}).");
+                println!("Use `openwhisper status` or `openwhisper toggle` to interact with it.");
+                return Ok(());
+            }
+        };
+
+    let _ui_instance_lock = if with_ui {
+        match openwhisper::lock::SingleInstanceLock::try_acquire("openwhisper-ui") {
+            Ok(lock) => Some(lock),
+            Err(reason) => {
+                tracing::warn!(
+                    "Could not acquire UI lock in unified mode ({reason}). Standalone UI service may already be running."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     if let Ok(resp) = hotkey::ipc::send_ipc_command_sync(&config.socket_path, IpcCommand::Status) {
         println!(
             "OpenWhisper daemon is already running (socket responsive: {}).",

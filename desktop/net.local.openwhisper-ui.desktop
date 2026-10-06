@@ -11,3 +11,4 @@ StartupNotify=false
 X-GNOME-Autostart-enabled=true
 X-KDE-autostart-after=panel
 X-LXQt-Need-Tray=true
+X-systemd-skip=true

@@ -191,14 +191,20 @@ Systematic analysis of friction points that users and contributors may encounter
   2. **In-Flight Stream Re-Anchoring**:
      Seamlessly migrate the `cpal` input stream to the new default audio endpoint in the background without dropping the daemon or aborting an active recording session.
 
-### C. Multi-Monitor & Fractional Scaling HUD Overlay Drift
+### C. Multi-Monitor & Fractional Scaling HUD Overlay Drift & Switcher Visibility
 - **Pain Point**:
-  Under Wayland compositors (GNOME Mutter, Hyprland, Sway), applications cannot programmatically set absolute window coordinates via standard X11 positioning calls. On multi-monitor setups or with fractional scaling (e.g. 125%, 150%), floating windows positioned via `winit::outer_position` can center on the wrong monitor or exhibit subpixel drift.
-- **Architectural Mitigation**:
-  1. **Native `wlr-layer-shell` Protocol Integration**:
-     Implement a native Wayland layer-shell surface (`zwlr_layer_shell_v1`) anchored to `ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY`.
-  2. **Active Monitor Pinning**:
-     Anchor the HUD pill to the bottom-center of the currently active focused monitor with zero window decorations, zero focus stealing, and exact compositor-managed scaling.
+  Under Wayland compositors (GNOME Mutter, Hyprland, Sway, KDE Plasma), applications cannot programmatically set absolute window coordinates via standard X11 positioning calls. On multi-monitor setups or with fractional scaling (e.g. 125%, 150%), floating windows positioned via `winit::outer_position` can center on the wrong monitor or exhibit subpixel drift.
+  Furthermore, standard `xdg_toplevel` surfaces lack client-side protocol requests to be excluded from window task switchers (e.g., KDE Plasma's Alt+Tab switcher), meaning fully transparent idle overlays can appear as blank entries without compositor-level filtering.
+- **Architectural Mitigation & Layer-Shell Deferral**:
+  1. **Deferred Native `wlr-layer-shell` Protocol Integration**:
+     The protocol-native solution for desktop overlays is `zwlr_layer_shell_v1` anchored to `ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY`. Layer-shell surfaces are inherently excluded from taskbars and window switchers by compositor design, and support exact compositor-managed anchor positioning per monitor. This transition requires migrating the HUD away from `eframe`/`winit` and is prioritized as P2.
+  2. **Interim Mitigation via KWin Rules & Rejection of Idle Unmapping**:
+     Until the layer-shell backend lands, OpenWhisper utilizes `eframe` with enforced KWin window rules (`skipswitcher=true` / `skipswitcherrule=2` (Force), `skiptaskbar=true`, `above=true`, `noborder=true`).
+     Dynamically unmapping (`Visible(false)`) the `xdg_toplevel` while idle was evaluated and rejected due to:
+     - *Start Latency*: Wayland toplevel mapping requires asynchronous `wl_surface.attach` / `xdg_surface.configure` roundtrips before presentation, adding latency to dictation onset.
+     - *Flicker & Window Opening Effects*: Compositors replay window-open animations (fade/glide/scale) on map, causing visible stutter on hotkey press.
+     - *Position Loss*: Wayland compositors ignore client-side position requests prior to mapping.
+     The KWin rule set is therefore maintained, verified, and self-healed by the daemon.
 
 ### D. Offline Resilience, Spool Queue & Embedded Model Fallback
 - **Pain Point**:

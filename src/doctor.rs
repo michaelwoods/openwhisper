@@ -503,7 +503,7 @@ pub fn check_desktop_integration() -> CheckResult {
     let icon_path = home.join(".local/share/icons/hicolor/scalable/apps/openwhisper.svg");
     let desktop_path = home.join(".local/share/applications/net.local.openwhisper.desktop");
     let mut details = Vec::new();
-    let mut missing = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
 
     if icon_path.exists() {
         details.push(format!(
@@ -511,7 +511,9 @@ pub fn check_desktop_integration() -> CheckResult {
             icon_path.display()
         ));
     } else {
-        missing.push("Scalable icon missing in ~/.local/share/icons/hicolor/scalable/apps");
+        missing.push(
+            "Scalable icon missing in ~/.local/share/icons/hicolor/scalable/apps".to_string(),
+        );
     }
 
     if desktop_path.exists() {
@@ -520,7 +522,7 @@ pub fn check_desktop_integration() -> CheckResult {
             desktop_path.display()
         ));
     } else {
-        missing.push("Desktop entry missing in ~/.local/share/applications");
+        missing.push("Desktop entry missing in ~/.local/share/applications".to_string());
     }
 
     let ui_desktop_path = home.join(".local/share/applications/net.local.openwhisper-ui.desktop");
@@ -539,16 +541,30 @@ pub fn check_desktop_integration() -> CheckResult {
         ));
     }
 
-    // Check KWin rules on KDE
-    let kwin_rules = home.join(".config/kwinrulesrc");
-    if let Ok(content) = std::fs::read_to_string(&kwin_rules) {
-        if content.contains("openwhisper") {
-            details.push("KDE Plasma KWin rules: HUD positioning rule detected".to_string());
-        } else {
-            details.push(
-                "KDE Plasma KWin rules: kwinrulesrc exists (HUD rule will sync automatically)"
-                    .to_string(),
-            );
+    // Check KWin rules on KDE Plasma
+    #[cfg(target_os = "linux")]
+    {
+        let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
+            .map(|d| d.to_uppercase().contains("KDE"))
+            .unwrap_or(false)
+            || has_command_in_path("kwin_wayland")
+            || has_command_in_path("kwriteconfig6");
+
+        let kwin_rules = home.join(".config/kwinrulesrc");
+        if is_kde || kwin_rules.exists() {
+            match crate::setup::verify_kwin_rules("kwinrulesrc") {
+                Ok(()) => {
+                    details.push(
+                        "KDE Plasma KWin rules: HUD window rules verified \
+                         (skipswitcher, skiptaskbar, keep-above)"
+                            .to_string(),
+                    );
+                }
+                Err(err) => {
+                    missing.push(format!("KDE Plasma KWin rules defective: {err}"));
+                    details.push(format!("KDE Plasma KWin rules: FAIL - {err}"));
+                }
+            }
         }
     }
 

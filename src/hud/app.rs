@@ -116,6 +116,28 @@ impl eframe::App for HudApp {
 
         if alpha <= 0.005 {
             // Window is completely transparent/idle.
+            //
+            // ARCHITECTURAL DECISION (Alt+Tab Switcher & Toplevel Mapping Lifecycle):
+            // We intentionally keep the xdg_toplevel surface mapped at alpha = 0.0 rather
+            // than unmapping / hiding it (`Visible(false)`) while idle. Unmapping was evaluated
+            // and explicitly rejected for the following technical reasons:
+            // 1. Zero-Latency Dictation: Re-mapping an unmapped Wayland xdg_toplevel on the first
+            //    hotkey press requires an asynchronous compositor roundtrip (wl_surface.attach ->
+            //    xdg_surface.configure -> ack_configure -> frame commit) before the first buffer
+            //    can be presented, introducing 50-150ms of visual latency into real-time dictation.
+            // 2. Flicker & Animation Cost: On KDE Plasma Wayland, mapping a toplevel surface
+            //    triggers compositor window-opening animations (fade/glide/scale) and placement passes.
+            //    Unmapping and re-mapping on every dictation cycle causes visual flicker and stutter.
+            // 3. Client-Side Positioning Constraints: Wayland xdg-shell intentionally forbids clients
+            //    from positioning their own toplevels. Position requests applied prior to mapping are
+            //    ignored by KWin; position is enforced strictly by KWin compositor rules.
+            // 4. Canonical KWin Exclusion: Exclusion from the Alt+Tab task switcher is handled cleanly
+            //    and natively by KWin window rules via `skipswitcher=true` / `skipswitcherrule=2` (Force)
+            //    alongside `skiptaskbar=true` / `skiptaskbarrule=2` (Force).
+            // 5. Future Protocol Migration: The proper protocol-native mechanism for floating overlays
+            //    that never participate in task switchers is `wlr-layer-shell` (`zwlr_layer_shell_v1`),
+            //    which is deferred and tracked in ROADMAP.md (§8.C).
+            //
             // Do not schedule busy repaints when idle to save CPU/battery.
             // When user starts recording, `controller.set_recording()` wakes up egui via `request_repaint()`.
             return;

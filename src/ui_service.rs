@@ -22,6 +22,9 @@ pub async fn run_ui_service(config: Config) -> Result<()> {
 
     info!("Starting OpenWhisper UI service (System Tray & Floating HUD)...");
 
+    #[cfg(target_os = "linux")]
+    crate::setup::repair_kwin_rules_if_needed();
+
     // 1. Initialize Floating HUD Overlay (binds to WAYLAND_DISPLAY / DISPLAY if present)
     let hud_ctrl = hud::start_hud_service(config.hud_enabled, config.hud_position);
 

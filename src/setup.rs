@@ -209,105 +209,147 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
     }
 
     // Wayland / Compositor Floating Window Rules (KWin for KDE Plasma)
-    configure_kwin_rules();
+    #[cfg(target_os = "linux")]
+    if let Err(e) = configure_kwin_rules() {
+        eprintln!("   ⚠️  KWin rule configuration could not be applied: {e}");
+    }
+
+    Ok(())
+}
+
+/// Pure builder returning the canonical list of KWin rule properties for the OpenWhisper HUD window.
+/// Includes `skipswitcher=true` / `skipswitcherrule=2` (Force) to exclude the HUD from KDE Plasma's Alt+Tab.
+pub fn hud_kwin_rule() -> Vec<(&'static str, String)> {
+    vec![
+        ("Description", "OpenWhisper Floating HUD".to_string()),
+        ("wmclass", "net.local.openwhisper.hud".to_string()),
+        ("wmclassmatch", "1".to_string()),
+        ("wmclasscomplete", "false".to_string()),
+        ("above", "true".to_string()),
+        ("aboverule", "2".to_string()),
+        ("noborder", "true".to_string()),
+        ("noborderrule", "2".to_string()),
+        ("skiptaskbar", "true".to_string()),
+        ("skiptaskbarrule", "2".to_string()),
+        ("skippager", "true".to_string()),
+        ("skippagerrule", "2".to_string()),
+        ("skipswitcher", "true".to_string()),
+        ("skipswitcherrule", "2".to_string()),
+    ]
+}
+
+#[cfg(target_os = "linux")]
+pub fn find_kwriteconfig() -> Option<&'static str> {
+    if has_command_in_path("kwriteconfig6") {
+        Some("kwriteconfig6")
+    } else if has_command_in_path("kwriteconfig5") {
+        Some("kwriteconfig5")
+    } else if has_command_in_path("kwriteconfig") {
+        Some("kwriteconfig")
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn find_kreadconfig() -> Option<&'static str> {
+    if has_command_in_path("kreadconfig6") {
+        Some("kreadconfig6")
+    } else if has_command_in_path("kreadconfig5") {
+        Some("kreadconfig5")
+    } else if has_command_in_path("kreadconfig") {
+        Some("kreadconfig")
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn write_kwin_config_key(file: &str, group: &str, key: &str, val: &str) -> Result<()> {
+    let write_cmd = find_kwriteconfig()
+        .context("Neither kwriteconfig6, kwriteconfig5, nor kwriteconfig found in PATH")?;
+    let mut cmd = std::process::Command::new(write_cmd);
+    cmd.args(["--file", file, "--group", group, "--key", key, val]);
+    let path = Path::new(file);
+    if let Some(parent) = path.parent().filter(|_| path.is_absolute()) {
+        cmd.env("XDG_CONFIG_HOME", parent);
+    }
+    apply_display_env(&mut cmd);
+    let output = cmd
+        .output()
+        .with_context(|| format!("Failed to execute {write_cmd} for key '{key}'"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "{write_cmd} failed (exit status {}): {stderr}",
+            output.status
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn read_kwin_config_key(file: &str, group: &str, key: &str) -> Result<String> {
+    let read_cmd = find_kreadconfig()
+        .context("Neither kreadconfig6, kreadconfig5, nor kreadconfig found in PATH")?;
+    let mut cmd = std::process::Command::new(read_cmd);
+    cmd.args([
+        "--file",
+        file,
+        "--group",
+        group,
+        "--key",
+        key,
+        "--default",
+        "",
+    ]);
+    let path = Path::new(file);
+    if let Some(parent) = path.parent().filter(|_| path.is_absolute()) {
+        cmd.env("XDG_CONFIG_HOME", parent);
+    }
+    apply_display_env(&mut cmd);
+    let output = cmd
+        .output()
+        .with_context(|| format!("Failed to execute {read_cmd} for key '{key}'"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "{read_cmd} failed (exit status {}): {stderr}",
+            output.status
+        );
+    }
+    let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(val)
+}
+
+#[cfg(target_os = "linux")]
+pub fn verify_kwin_rules(file: &str) -> Result<()> {
+    // 1. Verify that openwhisper_hud is in [General] rules
+    let current_rules = read_kwin_config_key(file, "General", "rules")?;
+    let is_present = current_rules
+        .split(',')
+        .any(|r| r.trim() == "openwhisper_hud");
+    if !is_present {
+        anyhow::bail!(
+            "KWin rule 'openwhisper_hud' is missing from [General] rules (found: '{current_rules}')"
+        );
+    }
+
+    // 2. Verify all properties from hud_kwin_rule()
+    for (key, expected_val) in hud_kwin_rule() {
+        let actual_val = read_kwin_config_key(file, "openwhisper_hud", key)?;
+        if actual_val != expected_val {
+            anyhow::bail!(
+                "KWin rule property mismatch for '{key}': expected '{expected_val}', found '{actual_val}'"
+            );
+        }
+    }
 
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn configure_kwin_rules() {
-    let write_cmd = if has_command_in_path("kwriteconfig6") {
-        "kwriteconfig6"
-    } else if has_command_in_path("kwriteconfig5") {
-        "kwriteconfig5"
-    } else if has_command_in_path("kwriteconfig") {
-        "kwriteconfig"
-    } else {
-        return;
-    };
-
-    let read_cmd = if has_command_in_path("kreadconfig6") {
-        "kreadconfig6"
-    } else if has_command_in_path("kreadconfig5") {
-        "kreadconfig5"
-    } else if has_command_in_path("kreadconfig") {
-        "kreadconfig"
-    } else {
-        return;
-    };
-
-    println!("🪟 Step 4: Configuring KWin window rules for Wayland HUD overlay...");
-
-    let rules_to_set = [
-        ("Description", "OpenWhisper Floating HUD"),
-        ("wmclass", "net.local.openwhisper.hud"),
-        ("wmclassmatch", "1"),
-        ("wmclasscomplete", "false"),
-        ("above", "true"),
-        ("aboverule", "2"),
-        ("noborder", "true"),
-        ("noborderrule", "2"),
-        ("skiptaskbar", "true"),
-        ("skiptaskbarrule", "2"),
-        ("skippager", "true"),
-        ("skippagerrule", "2"),
-    ];
-
-    for (key, val) in rules_to_set {
-        let _ = std::process::Command::new(write_cmd)
-            .args([
-                "--file",
-                "kwinrulesrc",
-                "--group",
-                "openwhisper_hud",
-                "--key",
-                key,
-                val,
-            ])
-            .output();
-    }
-
-    // Ensure openwhisper_hud is in the active rules list in [General]
-    let current_rules_output = std::process::Command::new(read_cmd)
-        .args([
-            "--file",
-            "kwinrulesrc",
-            "--group",
-            "General",
-            "--key",
-            "rules",
-        ])
-        .output();
-
-    let existing_rules = current_rules_output
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .unwrap_or_default();
-    let existing_rules = existing_rules.trim();
-
-    let rule_name = "openwhisper_hud";
-    let is_present = existing_rules.split(',').any(|r| r.trim() == rule_name);
-
-    if !is_present {
-        let updated_rules = if existing_rules.is_empty() {
-            rule_name.to_string()
-        } else {
-            format!("{existing_rules},{rule_name}")
-        };
-        let _ = std::process::Command::new(write_cmd)
-            .args([
-                "--file",
-                "kwinrulesrc",
-                "--group",
-                "General",
-                "--key",
-                "rules",
-                &updated_rules,
-            ])
-            .output();
-    }
-
-    // Reconfigure KWin if qdbus or qdbus-qt6 is available
+fn reconfigure_kwin() {
     let qdbus_cmd = if has_command_in_path("qdbus-qt6") {
         Some("qdbus-qt6")
     } else if has_command_in_path("qdbus") {
@@ -317,19 +359,107 @@ fn configure_kwin_rules() {
     };
 
     if let Some(cmd) = qdbus_cmd {
-        let _ = std::process::Command::new(cmd)
-            .args(["org.kde.KWin", "/KWin", "reconfigure"])
-            .output();
+        let mut dbus_cmd = std::process::Command::new(cmd);
+        dbus_cmd.args(["org.kde.KWin", "/KWin", "reconfigure"]);
+        apply_display_env(&mut dbus_cmd);
+        let _ = dbus_cmd.output();
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn repair_kwin_rules(file: &str) -> Result<()> {
+    find_kwriteconfig()
+        .context("Neither kwriteconfig6, kwriteconfig5, nor kwriteconfig found in PATH")?;
+    find_kreadconfig()
+        .context("Neither kreadconfig6, kreadconfig5, nor kreadconfig found in PATH")?;
+
+    // Upsert all rule keys from hud_kwin_rule()
+    for (key, val) in hud_kwin_rule() {
+        write_kwin_config_key(file, "openwhisper_hud", key, &val)?;
+    }
+
+    // Ensure openwhisper_hud is in [General] rules
+    let current_rules = read_kwin_config_key(file, "General", "rules").unwrap_or_default();
+    let mut rules: Vec<String> = current_rules
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if !rules.iter().any(|r| r == "openwhisper_hud") {
+        rules.push("openwhisper_hud".to_string());
+        let updated_rules = rules.join(",");
+        write_kwin_config_key(file, "General", "rules", &updated_rules)?;
+    }
+
+    // Verify all keys with readback
+    verify_kwin_rules(file)?;
+
+    // If configuring live system rules, trigger KWin reconfigure
+    if file == "kwinrulesrc" {
+        reconfigure_kwin();
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn configure_kwin_rules() -> Result<()> {
+    if find_kwriteconfig().is_none() || find_kreadconfig().is_none() {
+        eprintln!("   ⚠️  kwriteconfig/kreadconfig not found in PATH; skipping KWin rules.");
+        anyhow::bail!("kwriteconfig/kreadconfig not found in PATH");
+    }
+
+    println!("🪟 Step 4: Configuring KWin window rules for Wayland HUD overlay...");
+
+    repair_kwin_rules("kwinrulesrc")?;
 
     // Set initial position based on current config (defaulting to BottomCenter)
     let cfg = crate::config::Config::load().unwrap_or_default();
     sync_kwin_hud_position(cfg.hud_position);
 
     println!(
-        "   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above & screen position forced for Wayland)"
+        "   ✓ KWin rule 'openwhisper_hud' configured (Keep-Above, Skip-Taskbar, \
+         Skip-Switcher & screen position forced for Wayland)"
     );
+
+    Ok(())
 }
+
+/// Invoked at UI service start to ensure the KWin rule is present and verified.
+/// This is cheap and read-only when the rules are already correct.
+#[cfg(target_os = "linux")]
+pub fn repair_kwin_rules_if_needed() {
+    if find_kwriteconfig().is_none() || find_kreadconfig().is_none() {
+        return;
+    }
+
+    if verify_kwin_rules("kwinrulesrc").is_ok() {
+        return;
+    }
+
+    tracing::info!("KWin HUD window rules missing or incomplete; repairing...");
+    if let Err(e) = repair_kwin_rules("kwinrulesrc") {
+        tracing::warn!("Failed to repair KWin rules: {e}");
+    } else {
+        let cfg = crate::config::Config::load().unwrap_or_default();
+        sync_kwin_hud_position(cfg.hud_position);
+        tracing::info!("KWin HUD rules successfully repaired.");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn configure_kwin_rules() -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn verify_kwin_rules(_file: &str) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn repair_kwin_rules_if_needed() {}
 
 fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -475,15 +605,9 @@ pub fn detect_screen_geometry() -> (i32, i32) {
 
 #[cfg(target_os = "linux")]
 pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
-    let write_cmd = if has_command_in_path("kwriteconfig6") {
-        "kwriteconfig6"
-    } else if has_command_in_path("kwriteconfig5") {
-        "kwriteconfig5"
-    } else if has_command_in_path("kwriteconfig") {
-        "kwriteconfig"
-    } else {
+    if find_kwriteconfig().is_none() {
         return;
-    };
+    }
 
     let (screen_w, screen_h) = detect_screen_geometry();
     let win_w = 290;
@@ -503,47 +627,14 @@ pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
     };
 
     let pos_str = format!("{x},{y}");
-    let mut write_pos = std::process::Command::new(write_cmd);
-    write_pos.args([
-        "--file",
-        "kwinrulesrc",
-        "--group",
-        "openwhisper_hud",
-        "--key",
-        "position",
-        &pos_str,
-    ]);
-    apply_display_env(&mut write_pos);
-    let _ = write_pos.output();
+    let _ = write_kwin_config_key("kwinrulesrc", "openwhisper_hud", "position", &pos_str);
+    let _ = write_kwin_config_key("kwinrulesrc", "openwhisper_hud", "positionrule", "2");
 
-    let mut write_rule = std::process::Command::new(write_cmd);
-    write_rule.args([
-        "--file",
-        "kwinrulesrc",
-        "--group",
-        "openwhisper_hud",
-        "--key",
-        "positionrule",
-        "2",
-    ]);
-    apply_display_env(&mut write_rule);
-    let _ = write_rule.output();
-
-    let qdbus_cmd = if has_command_in_path("qdbus-qt6") {
-        Some("qdbus-qt6")
-    } else if has_command_in_path("qdbus") {
-        Some("qdbus")
-    } else {
-        None
-    };
-
-    if let Some(cmd) = qdbus_cmd {
-        let mut dbus_cmd = std::process::Command::new(cmd);
-        dbus_cmd.args(["org.kde.KWin", "/KWin", "reconfigure"]);
-        apply_display_env(&mut dbus_cmd);
-        let _ = dbus_cmd.output();
-    }
+    reconfigure_kwin();
 }
+
+#[cfg(not(target_os = "linux"))]
+pub fn sync_kwin_hud_position(_position: crate::config::HudPosition) {}
 
 #[cfg(target_os = "linux")]
 fn install_linux_systemd(home: &Path) -> Result<()> {
@@ -622,9 +713,170 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn test_detect_screen_geometry_bounds() {
         let (w, h) = detect_screen_geometry();
         assert!(w >= 640);
         assert!(h >= 480);
+    }
+
+    #[test]
+    fn test_hud_kwin_rule_builder() {
+        let rules = hud_kwin_rule();
+        let map: std::collections::HashMap<&str, &str> =
+            rules.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+        // Primary fix: Alt+Tab task switcher exclusion
+        assert_eq!(map.get("skipswitcher"), Some(&"true"));
+        assert_eq!(map.get("skipswitcherrule"), Some(&"2"));
+
+        // Taskbar and pager exclusion
+        assert_eq!(map.get("skiptaskbar"), Some(&"true"));
+        assert_eq!(map.get("skiptaskbarrule"), Some(&"2"));
+        assert_eq!(map.get("skippager"), Some(&"true"));
+        assert_eq!(map.get("skippagerrule"), Some(&"2"));
+
+        // Window behavior
+        assert_eq!(map.get("above"), Some(&"true"));
+        assert_eq!(map.get("aboverule"), Some(&"2"));
+        assert_eq!(map.get("noborder"), Some(&"true"));
+        assert_eq!(map.get("noborderrule"), Some(&"2"));
+
+        // Window identification matching
+        assert_eq!(map.get("wmclass"), Some(&"net.local.openwhisper.hud"));
+        assert_eq!(map.get("wmclassmatch"), Some(&"1"));
+        assert_eq!(map.get("wmclasscomplete"), Some(&"false"));
+        assert_eq!(map.get("Description"), Some(&"OpenWhisper Floating HUD"));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_kwin_rules_readback_verifier_failure_on_missing_property() {
+        if find_kwriteconfig().is_none() || find_kreadconfig().is_none() {
+            return;
+        }
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_file = temp_dir.path().join("kwinrulesrc");
+        let _ = std::fs::File::create(&temp_file);
+        let file_str = temp_file.to_str().expect("valid utf8");
+
+        // Write incomplete rule (missing skipswitcher and skipswitcherrule)
+        let incomplete_rules = [
+            ("Description", "OpenWhisper Floating HUD"),
+            ("wmclass", "net.local.openwhisper.hud"),
+            ("above", "true"),
+            ("aboverule", "2"),
+            ("skiptaskbar", "true"),
+            ("skiptaskbarrule", "2"),
+        ];
+        for (k, v) in incomplete_rules {
+            write_kwin_config_key(file_str, "openwhisper_hud", k, v).unwrap();
+        }
+        write_kwin_config_key(file_str, "General", "rules", "openwhisper_hud").unwrap();
+
+        let res = verify_kwin_rules(file_str);
+        assert!(
+            res.is_err(),
+            "Verifier must report failure when skipswitcher is missing"
+        );
+        let err = res.unwrap_err().to_string();
+        assert!(
+            err.contains("skipswitcher") || err.contains("mismatch"),
+            "Error message should mention the missing or mismatched property: {err}"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_kwin_rules_readback_verifier_success_on_complete_group() {
+        if find_kwriteconfig().is_none() || find_kreadconfig().is_none() {
+            return;
+        }
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_file = temp_dir.path().join("kwinrulesrc");
+        let _ = std::fs::File::create(&temp_file);
+        let file_str = temp_file.to_str().expect("valid utf8");
+
+        // Write complete canonical rule set
+        for (k, v) in hud_kwin_rule() {
+            write_kwin_config_key(file_str, "openwhisper_hud", k, &v).unwrap();
+        }
+        write_kwin_config_key(file_str, "General", "rules", "rule1,openwhisper_hud,rule2").unwrap();
+
+        let res = verify_kwin_rules(file_str);
+        assert!(
+            res.is_ok(),
+            "Verifier must succeed for complete group: {:?}",
+            res
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_repair_incomplete_group_and_verify() {
+        if find_kwriteconfig().is_none() || find_kreadconfig().is_none() {
+            return;
+        }
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_file = temp_dir.path().join("kwinrulesrc");
+        let _ = std::fs::File::create(&temp_file);
+        let file_str = temp_file.to_str().expect("valid utf8");
+
+        // Incomplete group with only a subset of keys and missing [General] rule entry
+        write_kwin_config_key(file_str, "openwhisper_hud", "above", "true").unwrap();
+        write_kwin_config_key(file_str, "openwhisper_hud", "aboverule", "2").unwrap();
+
+        assert!(verify_kwin_rules(file_str).is_err());
+
+        repair_kwin_rules(file_str).expect("repair must succeed");
+
+        assert!(verify_kwin_rules(file_str).is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_repair_defective_rules_file() {
+        if find_kwriteconfig().is_none() || find_kreadconfig().is_none() {
+            return;
+        }
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_file = temp_dir.path().join("kwinrulesrc");
+        let _ = std::fs::File::create(&temp_file);
+        let file_str = temp_file.to_str().expect("valid utf8");
+
+        // Defective state observed on host:
+        // [General] rules is empty, [openwhisper_hud] keeps only position/positionrule
+        write_kwin_config_key(file_str, "General", "rules", "").unwrap();
+        write_kwin_config_key(file_str, "openwhisper_hud", "position", "815,972").unwrap();
+        write_kwin_config_key(file_str, "openwhisper_hud", "positionrule", "2").unwrap();
+
+        // Must fail verification before repair
+        assert!(verify_kwin_rules(file_str).is_err());
+
+        // Run repair path
+        repair_kwin_rules(file_str).expect("repair must succeed");
+
+        // Must pass verification after repair
+        assert!(verify_kwin_rules(file_str).is_ok());
+
+        // Verify required properties
+        let skipswitcher =
+            read_kwin_config_key(file_str, "openwhisper_hud", "skipswitcher").unwrap();
+        assert_eq!(skipswitcher, "true");
+        let skipswitcherrule =
+            read_kwin_config_key(file_str, "openwhisper_hud", "skipswitcherrule").unwrap();
+        assert_eq!(skipswitcherrule, "2");
+
+        let general_rules = read_kwin_config_key(file_str, "General", "rules").unwrap();
+        assert!(
+            general_rules
+                .split(',')
+                .any(|r| r.trim() == "openwhisper_hud"),
+            "[General] rules must contain openwhisper_hud: {general_rules}"
+        );
+
+        // Pre-existing position property must be preserved
+        let position = read_kwin_config_key(file_str, "openwhisper_hud", "position").unwrap();
+        assert_eq!(position, "815,972");
     }
 }

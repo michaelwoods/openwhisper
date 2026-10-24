@@ -1,23 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-
-const UI_AUTOSTART_DESKTOP: &str = r#"[Desktop Entry]
-Name=OpenWhisper UI
-GenericName=Dictation Assistant UI
-Comment=Zero-latency speech-to-text system tray and HUD overlay
-Exec=openwhisper ui
-Icon=openwhisper
-Terminal=false
-Type=Application
-Categories=Utility;AudioVideo;Audio;
-StartupNotify=false
-X-GNOME-Autostart-enabled=true
-X-KDE-autostart-after=panel
-X-LXQt-Need-Tray=true
-X-systemd-skip=true
-"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutostartStatus {
@@ -75,7 +59,7 @@ pub fn status() -> AutostartStatus {
 
 pub fn is_enabled() -> bool {
     let s = status();
-    s.daemon_systemd_enabled || s.ui_systemd_enabled || s.xdg_autostart_installed
+    s.daemon_systemd_enabled || s.ui_systemd_enabled
 }
 
 #[cfg(target_os = "linux")]
@@ -106,13 +90,11 @@ pub fn enable() -> Result<()> {
         let ui_unit = systemd_dir.join("openwhisper-ui.service");
         let _ = fs::write(&ui_unit, include_str!("../systemd/openwhisper-ui.service"));
 
-        // Deploy XDG autostart desktop entry as desktop fallback
+        // Clean up legacy autostart entry if present; systemd user units own startup exclusively
         let autostart_path = autostart_desktop_path();
-        if let Some(parent) = autostart_path.parent() {
-            let _ = fs::create_dir_all(parent);
+        if autostart_path.exists() {
+            let _ = fs::remove_file(&autostart_path);
         }
-        fs::write(&autostart_path, UI_AUTOSTART_DESKTOP)
-            .with_context(|| format!("Failed to write {}", autostart_path.display()))?;
 
         // Enable systemd user units
         let _ = std::process::Command::new("systemctl")
@@ -142,10 +124,9 @@ pub fn enable() -> Result<()> {
     #[cfg(not(target_os = "linux"))]
     {
         let autostart_path = autostart_desktop_path();
-        if let Some(parent) = autostart_path.parent() {
-            let _ = fs::create_dir_all(parent);
+        if autostart_path.exists() {
+            let _ = fs::remove_file(&autostart_path);
         }
-        let _ = fs::write(&autostart_path, UI_AUTOSTART_DESKTOP);
     }
 
     Ok(())
@@ -223,18 +204,8 @@ pub fn format_status_report(st: &AutostartStatus) -> String {
         ui_en_str, ui_act_str
     ));
 
-    let xdg_str = if st.xdg_autostart_installed {
-        "\x1b[32mInstalled\x1b[0m"
-    } else {
-        "\x1b[37mNot Installed\x1b[0m"
-    };
-    out.push_str(&format!(
-        " • XDG Autostart Desktop:    {} ({})\n",
-        xdg_str, st.xdg_autostart_path
-    ));
-
     out.push_str("==============================\n");
-    if st.daemon_systemd_enabled || st.xdg_autostart_installed {
+    if st.daemon_systemd_enabled || st.ui_systemd_enabled {
         out.push_str("Launch at startup is \x1b[1;32mENABLED\x1b[0m.\n");
     } else {
         out.push_str(
@@ -243,4 +214,45 @@ pub fn format_status_report(st: &AutostartStatus) -> String {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_enabled_reports_systemd_only_state() {
+        let st_xdg_only = AutostartStatus {
+            daemon_systemd_enabled: false,
+            daemon_systemd_active: false,
+            ui_systemd_enabled: false,
+            ui_systemd_active: false,
+            xdg_autostart_installed: true,
+            xdg_autostart_path: "/some/path/net.local.openwhisper-ui.desktop".to_string(),
+        };
+
+        let report = format_status_report(&st_xdg_only);
+        assert!(
+            report.contains("DISABLED"),
+            "Autostart report must not count XDG desktop file as enabled: {report}"
+        );
+        assert!(
+            !report.contains("XDG Autostart Desktop"),
+            "Autostart report must be systemd-only: {report}"
+        );
+
+        let st_enabled = AutostartStatus {
+            daemon_systemd_enabled: true,
+            daemon_systemd_active: true,
+            ui_systemd_enabled: true,
+            ui_systemd_active: true,
+            xdg_autostart_installed: false,
+            xdg_autostart_path: String::new(),
+        };
+        let report_enabled = format_status_report(&st_enabled);
+        assert!(
+            report_enabled.contains("ENABLED"),
+            "Autostart report must report enabled when systemd units are enabled: {report_enabled}"
+        );
+    }
 }

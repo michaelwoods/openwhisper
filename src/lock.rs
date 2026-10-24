@@ -28,12 +28,21 @@ impl SingleInstanceLock {
             use std::os::unix::fs::OpenOptionsExt;
             use std::os::unix::io::AsRawFd;
 
-            let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| {
-                let uid = unsafe { libc::getuid() };
-                format!("/run/user/{uid}")
-            });
+            let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+                .ok()
+                .map(PathBuf::from)
+                .filter(|p| p.is_dir())
+                .unwrap_or_else(|| {
+                    let uid = unsafe { libc::getuid() };
+                    let run_user = PathBuf::from(format!("/run/user/{uid}"));
+                    if run_user.is_dir() {
+                        run_user
+                    } else {
+                        std::env::temp_dir()
+                    }
+                });
 
-            let lock_path = PathBuf::from(runtime_dir).join(format!("{name}.lock"));
+            let lock_path = runtime_dir.join(format!("{name}.lock"));
             let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)

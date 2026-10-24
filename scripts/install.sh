@@ -16,22 +16,9 @@ cargo build --release
 BIN_SOURCE="$SCRIPT_DIR/target/release/openwhisper"
 
 echo "==> Installing binary..."
-# Prefer /usr/local/bin if writable or via sudo, fallback to ~/.local/bin
-if [ -w /usr/local/bin ]; then
-    install -Dm755 "$BIN_SOURCE" /usr/local/bin/openwhisper
-    echo "    Installed to /usr/local/bin/openwhisper"
-elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    sudo install -Dm755 "$BIN_SOURCE" /usr/local/bin/openwhisper
-    echo "    Installed to /usr/local/bin/openwhisper (via sudo)"
-else
-    mkdir -p "$HOME/.local/bin"
-    install -Dm755 "$BIN_SOURCE" "$HOME/.local/bin/openwhisper"
-    echo "    Installed to $HOME/.local/bin/openwhisper"
-fi
-
-# Always maintain ~/.local/bin copy as well
 mkdir -p "$HOME/.local/bin"
 install -Dm755 "$BIN_SOURCE" "$HOME/.local/bin/openwhisper"
+echo "    Installed to $HOME/.local/bin/openwhisper"
 
 echo "==> Installing icons..."
 ICON_DIR="$HOME/.local/share/icons/hicolor"
@@ -105,11 +92,13 @@ fi
 
 echo "==> Installing desktop entries..."
 APP_DIR="$HOME/.local/share/applications"
-mkdir -p "$APP_DIR" "$HOME/.config/autostart"
+mkdir -p "$APP_DIR"
 install -Dm644 desktop/net.local.openwhisper.desktop "$APP_DIR/net.local.openwhisper.desktop"
 install -Dm644 desktop/net.local.openwhisper.settings.desktop "$APP_DIR/net.local.openwhisper.settings.desktop"
 install -Dm644 desktop/net.local.openwhisper-ui.desktop "$APP_DIR/net.local.openwhisper-ui.desktop"
-install -Dm644 desktop/net.local.openwhisper-ui.desktop "$HOME/.config/autostart/net.local.openwhisper-ui.desktop"
+
+# Clean up legacy XDG autostart entry if present; systemd user services now own startup exclusively
+rm -f "$HOME/.config/autostart/net.local.openwhisper-ui.desktop"
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true

@@ -130,3 +130,41 @@ fn test_cli_ui_help() {
         .success()
         .stdout(predicate::str::contains("HUD"));
 }
+
+#[test]
+fn test_install_script_contains_no_sudo_execution() {
+    let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/install.sh");
+    let content = std::fs::read_to_string(&script_path).expect("read scripts/install.sh");
+
+    for (line_no, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        assert!(
+            !trimmed.contains("sudo"),
+            "scripts/install.sh line {} contains unapproved sudo: {}",
+            line_no + 1,
+            line
+        );
+    }
+}
+
+#[test]
+fn test_setup_rs_contains_no_sudo_execution() {
+    let setup_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/setup.rs");
+    let content = std::fs::read_to_string(&setup_path).expect("read src/setup.rs");
+
+    for (line_no, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        assert!(
+            !trimmed.contains("sudo"),
+            "src/setup.rs line {} contains unapproved sudo: {}",
+            line_no + 1,
+            line
+        );
+    }
+}

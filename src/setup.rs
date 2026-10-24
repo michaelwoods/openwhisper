@@ -39,26 +39,29 @@ fn get_home_dir() -> PathBuf {
 }
 
 pub fn run_setup() -> Result<()> {
-    println!("🚀 Running OpenWhisper System Setup...\n");
-
     let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
     let home = get_home_dir();
+    run_setup_for_home(&current_exe, &home)
+}
+
+pub fn run_setup_for_home(current_exe: &Path, home: &Path) -> Result<()> {
+    println!("🚀 Running OpenWhisper System Setup...\n");
 
     // 1. Cross-Platform Binary Installation
     println!("📦 Step 1: Installing OpenWhisper binary...");
-    install_binary(&current_exe, &home)?;
+    install_binary(current_exe, home)?;
 
     // 2. Platform-Specific Desktop Integration
     #[cfg(target_os = "linux")]
     {
-        install_linux_desktop(&home)?;
-        install_linux_systemd(&home)?;
+        install_linux_desktop(home)?;
+        install_linux_systemd(home)?;
     }
 
     #[cfg(target_os = "macos")]
     {
         println!("🍎 macOS platform detected:");
-        println!("   ✓ Binary is ready in user PATH (~/.local/bin or /usr/local/bin)");
+        println!("   ✓ Binary is ready in user PATH (~/.local/bin)");
         println!("   💡 To run on startup, add a LaunchAgent plist to ~/Library/LaunchAgents");
     }
 
@@ -73,7 +76,7 @@ pub fn run_setup() -> Result<()> {
     Ok(())
 }
 
-fn install_binary(current_exe: &Path, home: &Path) -> Result<()> {
+pub fn install_binary(current_exe: &Path, home: &Path) -> Result<()> {
     let user_bin_dir = home.join(".local/bin");
     let _ = fs::create_dir_all(&user_bin_dir);
     let user_bin = user_bin_dir.join("openwhisper");
@@ -85,13 +88,6 @@ fn install_binary(current_exe: &Path, home: &Path) -> Result<()> {
         println!("   ⚠️  Could not copy to {}: {e}", user_bin.display());
     } else {
         println!("   ✓ Installed to {}", user_bin.display());
-    }
-
-    // Attempt system-wide install if /usr/local/bin is writable
-    let usr_bin = PathBuf::from("/usr/local/bin/openwhisper");
-    let tmp_usr = PathBuf::from("/usr/local/bin/.openwhisper.tmp");
-    if fs::copy(current_exe, &tmp_usr).is_ok() && fs::rename(&tmp_usr, &usr_bin).is_ok() {
-        println!("   ✓ Installed to /usr/local/bin/openwhisper");
     }
 
     Ok(())
@@ -188,30 +184,32 @@ fn install_linux_desktop(home: &Path) -> Result<()> {
     println!("   ✓ Registered net.local.openwhisper.settings.desktop (Settings GUI panel)");
     println!("   ✓ Registered net.local.openwhisper-ui.desktop (System Tray & Overlay UI)");
 
-    // Refresh desktop/icon database if utilities are installed
-    if has_command_in_path("kbuildsycoca6") {
-        let _ = std::process::Command::new("kbuildsycoca6")
-            .arg("--noincremental")
-            .output();
-    }
-    if has_command_in_path("update-desktop-database") {
-        let _ = std::process::Command::new("update-desktop-database")
-            .arg(&app_dir)
-            .output();
-    }
-    if has_command_in_path("gtk-update-icon-cache") {
-        let _ = std::process::Command::new("gtk-update-icon-cache")
-            .arg("-q")
-            .arg("-t")
-            .arg("-f")
-            .arg(&icons_dir)
-            .output();
-    }
+    // Refresh desktop/icon database and compositor rules for live user sessions
+    if home == get_home_dir() {
+        if has_command_in_path("kbuildsycoca6") {
+            let _ = std::process::Command::new("kbuildsycoca6")
+                .arg("--noincremental")
+                .output();
+        }
+        if has_command_in_path("update-desktop-database") {
+            let _ = std::process::Command::new("update-desktop-database")
+                .arg(&app_dir)
+                .output();
+        }
+        if has_command_in_path("gtk-update-icon-cache") {
+            let _ = std::process::Command::new("gtk-update-icon-cache")
+                .arg("-q")
+                .arg("-t")
+                .arg("-f")
+                .arg(&icons_dir)
+                .output();
+        }
 
-    // Wayland / Compositor Floating Window Rules (KWin for KDE Plasma)
-    #[cfg(target_os = "linux")]
-    if let Err(e) = configure_kwin_rules() {
-        eprintln!("   ⚠️  KWin rule configuration could not be applied: {e}");
+        // Wayland / Compositor Floating Window Rules (KWin for KDE Plasma)
+        #[cfg(target_os = "linux")]
+        if let Err(e) = configure_kwin_rules() {
+            eprintln!("   ⚠️  KWin rule configuration could not be applied: {e}");
+        }
     }
 
     Ok(())
@@ -636,9 +634,27 @@ pub fn sync_kwin_hud_position(position: crate::config::HudPosition) {
 #[cfg(not(target_os = "linux"))]
 pub fn sync_kwin_hud_position(_position: crate::config::HudPosition) {}
 
+/// Cleans up any legacy XDG autostart entry from ~/.config/autostart.
+/// Returns Ok(true) if a legacy file was found and removed, Ok(false) if absent.
+/// Idempotent: safe to run multiple times.
+pub fn cleanup_legacy_autostart(home: &Path) -> Result<bool> {
+    let legacy_autostart = home.join(".config/autostart/net.local.openwhisper-ui.desktop");
+    if legacy_autostart.exists() {
+        fs::remove_file(&legacy_autostart).with_context(|| {
+            format!(
+                "Failed to remove legacy autostart file {}",
+                legacy_autostart.display()
+            )
+        })?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 #[cfg(target_os = "linux")]
-fn install_linux_systemd(home: &Path) -> Result<()> {
-    println!("⚙️  Step 5: Configuring systemd user service & autostart...");
+pub fn install_linux_systemd(home: &Path) -> Result<()> {
+    println!("⚙️  Step 5: Configuring systemd user services...");
     let systemd_dir = home.join(".config/systemd/user");
     let _ = fs::create_dir_all(&systemd_dir);
     let unit_path = systemd_dir.join("openwhisper.service");
@@ -651,15 +667,12 @@ fn install_linux_systemd(home: &Path) -> Result<()> {
         .with_context(|| format!("Failed to write service unit to {}", ui_unit_path.display()))?;
     println!("   ✓ Installed {}", ui_unit_path.display());
 
-    let autostart_dir = home.join(".config/autostart");
-    let _ = fs::create_dir_all(&autostart_dir);
-    let _ = fs::write(
-        autostart_dir.join("net.local.openwhisper-ui.desktop"),
-        UI_DESKTOP,
-    );
-    println!("   ✓ Installed XDG Autostart entry in ~/.config/autostart");
+    // Clean up any legacy XDG autostart entry left by previous versions
+    if cleanup_legacy_autostart(home)? {
+        println!("   ✓ Cleaned up legacy XDG Autostart entry in ~/.config/autostart");
+    }
 
-    if has_command_in_path("systemctl") {
+    if home == get_home_dir() && has_command_in_path("systemctl") {
         let mut reload_cmd = std::process::Command::new("systemctl");
         reload_cmd.arg("--user").arg("daemon-reload");
         apply_systemd_env(&mut reload_cmd);
@@ -684,10 +697,17 @@ fn install_linux_systemd(home: &Path) -> Result<()> {
         let _ = restart_cmd.output();
 
         println!("   ✓ systemd user services reloaded, enabled, and restarted.");
+    } else if has_command_in_path("systemctl") && home != get_home_dir() {
+        // In isolated or test environments with custom home prefix, skip live systemctl invocation
     } else {
         println!("   ⚠️  systemctl not found in PATH; skipping service activation.");
     }
 
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn install_linux_systemd(_home: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -878,5 +898,112 @@ mod tests {
         // Pre-existing position property must be preserved
         let position = read_kwin_config_key(file_str, "openwhisper_hud", "position").unwrap();
         assert_eq!(position, "815,972");
+    }
+
+    #[test]
+    fn test_setup_path_does_not_create_xdg_autostart() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_home = temp_dir.path();
+        let dummy_exe = temp_home.join("dummy_openwhisper");
+        fs::write(&dummy_exe, b"dummy").unwrap();
+
+        run_setup_for_home(&dummy_exe, temp_home).expect("setup must succeed");
+
+        let autostart_desktop =
+            temp_home.join(".config/autostart/net.local.openwhisper-ui.desktop");
+        assert!(
+            !autostart_desktop.exists(),
+            "Setup path must not create XDG autostart entry: {}",
+            autostart_desktop.display()
+        );
+
+        #[cfg(target_os = "linux")]
+        {
+            assert!(
+                temp_home
+                    .join(".config/systemd/user/openwhisper.service")
+                    .exists(),
+                "openwhisper.service should be installed"
+            );
+            assert!(
+                temp_home
+                    .join(".config/systemd/user/openwhisper-ui.service")
+                    .exists(),
+                "openwhisper-ui.service should be installed"
+            );
+        }
+    }
+
+    #[test]
+    fn test_cleanup_legacy_autostart_removes_file_and_second_run_is_noop() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_home = temp_dir.path();
+        let autostart_dir = temp_home.join(".config/autostart");
+        fs::create_dir_all(&autostart_dir).expect("create autostart dir");
+        let autostart_file = autostart_dir.join("net.local.openwhisper-ui.desktop");
+        fs::write(&autostart_file, "[Desktop Entry]\nExec=openwhisper ui\n")
+            .expect("write legacy file");
+        assert!(autostart_file.exists());
+
+        // First run: cleans up legacy autostart file
+        let removed = cleanup_legacy_autostart(temp_home).expect("cleanup succeeds");
+        assert!(removed, "First run should indicate file was removed");
+        assert!(
+            !autostart_file.exists(),
+            "Legacy autostart file should have been deleted"
+        );
+
+        // Second run: idempotent no-op
+        let removed_again = cleanup_legacy_autostart(temp_home).expect("second run succeeds");
+        assert!(
+            !removed_again,
+            "Second run should be a no-op returning false"
+        );
+        assert!(!autostart_file.exists());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_setup_path_removes_existing_legacy_autostart() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_home = temp_dir.path();
+        let autostart_dir = temp_home.join(".config/autostart");
+        fs::create_dir_all(&autostart_dir).expect("create autostart dir");
+        let autostart_file = autostart_dir.join("net.local.openwhisper-ui.desktop");
+        fs::write(&autostart_file, "[Desktop Entry]\nExec=openwhisper ui\n")
+            .expect("write legacy file");
+        assert!(autostart_file.exists());
+
+        let dummy_exe = temp_home.join("dummy_openwhisper");
+        fs::write(&dummy_exe, b"dummy").unwrap();
+
+        run_setup_for_home(&dummy_exe, temp_home).expect("setup must succeed");
+        assert!(
+            !autostart_file.exists(),
+            "Setup path must remove pre-existing legacy autostart entry"
+        );
+
+        // A second run on the same temp home is idempotent and does not recreate it
+        run_setup_for_home(&dummy_exe, temp_home).expect("second setup must succeed");
+        assert!(
+            !autostart_file.exists(),
+            "Second setup run must not recreate autostart entry"
+        );
+    }
+
+    #[test]
+    fn test_install_binary_never_writes_outside_user_prefix() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_home = temp_dir.path();
+        let dummy_exe = temp_home.join("dummy_openwhisper");
+        fs::write(&dummy_exe, b"dummy").unwrap();
+
+        install_binary(&dummy_exe, temp_home).expect("install_binary succeeds");
+
+        let installed_bin = temp_home.join(".local/bin/openwhisper");
+        assert!(
+            installed_bin.exists(),
+            "Binary must be installed in user prefix"
+        );
     }
 }

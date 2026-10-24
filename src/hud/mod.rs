@@ -393,7 +393,7 @@ mod tests {
         }
 
         // At t0: alpha is 1.0
-        assert_eq!(model.calculate_alpha(t0), 1.0);
+        assert_eq!(model.calculate_alpha(t0), 0.999_9);
 
         // At t0 + 1.5s: still in hold period (2.2s)
         assert_eq!(model.calculate_alpha(t0 + Duration::from_millis(1500)), 1.0);

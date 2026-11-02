@@ -30,6 +30,11 @@ impl OutputManager {
         self.restore_clipboard = config.restore_clipboard;
     }
 
+    /// Releases the underlying virtual keyboard device (defense in depth during shutdown).
+    pub fn release_virtual_keyboard(&mut self) {
+        self.injector.release_virtual_keyboard();
+    }
+
     pub fn output_text(&mut self, text: &str) -> Result<()> {
         if text.trim().is_empty() {
             return Ok(());

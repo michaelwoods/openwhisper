@@ -407,12 +407,42 @@ impl ksni::Tray for OpenWhisperTray {
 
         items.push(MenuItem::Separator);
 
+        let socket_for_quit = self.socket_path.clone();
         items.push(
             StandardItem {
                 label: "❌ Quit OpenWhisper".into(),
-                activate: Box::new(|_| {
+                activate: Box::new(move |_| {
                     info!("Quitting OpenWhisper via system tray menu");
-                    std::process::exit(0);
+                    let socket = socket_for_quit.clone();
+                    tokio::spawn(async move {
+                        match crate::hotkey::ipc::send_shutdown(&socket).await {
+                            Ok(resp) if resp.status == "ok" => {
+                                info!("Daemon shutdown acknowledged: {}", resp.message);
+                                std::process::exit(0);
+                            }
+                            Ok(resp) => {
+                                warn!(
+                                    "Daemon refused shutdown: {} ({})",
+                                    resp.message, resp.status
+                                );
+                                notify_shutdown_failure(
+                                    "OpenWhisper Quit Failed",
+                                    "The daemon did not confirm shutdown. Dictation may still be active.",
+                                );
+                                // Do not exit the UI; leave the tray visible so the user can retry.
+                            }
+                            Err(err) => {
+                                // Connection refused / socket missing means nothing is listening.
+                                // Surface the condition, but do not silently leave a broken tray alive.
+                                warn!("Could not request daemon shutdown: {err}");
+                                notify_shutdown_failure(
+                                    "OpenWhisper Quit",
+                                    "The daemon is not reachable; no listener was found. Exiting UI.",
+                                );
+                                std::process::exit(0);
+                            }
+                        }
+                    });
                 }),
                 ..Default::default()
             }
@@ -421,6 +451,21 @@ impl ksni::Tray for OpenWhisperTray {
 
         items
     }
+}
+
+/// Shows a shutdown-failure notification from a dedicated blocking thread so the
+/// notification backend is never invoked on a Tokio async worker thread.
+fn notify_shutdown_failure(summary: &str, body: &str) {
+    let summary = summary.to_string();
+    let body = body.to_string();
+    std::thread::spawn(move || {
+        let _ = notify_rust::Notification::new()
+            .summary(&summary)
+            .body(&body)
+            .icon("openwhisper")
+            .timeout(notify_rust::Timeout::Milliseconds(5000))
+            .show();
+    });
 }
 
 /// Handle to dynamically update the running tray state

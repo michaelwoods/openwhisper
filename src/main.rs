@@ -23,6 +23,7 @@ use notification::NotificationManager;
 use output::OutputManager;
 use std::io::{self, Cursor};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -154,6 +155,15 @@ async fn main() -> Result<()> {
         Commands::Status => {
             let res = send_ipc_command(&config.socket_path, IpcCommand::Status).await?;
             println!("{}: {}", res.status, res.message);
+            Ok(())
+        }
+
+        Commands::Stop => {
+            let res = crate::hotkey::ipc::send_shutdown(&config.socket_path).await?;
+            println!("{}: {}", res.status, res.message);
+            if res.status != "ok" {
+                anyhow::bail!("daemon shutdown was not acknowledged: {}", res.message);
+            }
             Ok(())
         }
 
@@ -669,13 +679,18 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
     }
     let mut active_config = config;
 
+    // Coordinate the acknowledged shutdown handshake between the IPC server and
+    // this daemon event loop.
+    let shutdown_coord = hotkey::ipc::ShutdownCoordinator::new();
+
     // Spawn IPC Unix Socket Server with Event Stream broadcaster
     let ipc_server = IpcServer::new(
         active_config.socket_path.clone(),
         cmd_tx.clone(),
         Some(event_tx.clone()),
-    );
-    tokio::spawn(async move {
+    )
+    .with_shutdown(shutdown_coord.clone());
+    let ipc_handle = tokio::spawn(async move {
         if let Err(err) = ipc_server.run().await {
             tracing::error!("IPC server error: {err}");
         }
@@ -683,11 +698,16 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
 
     // Spawn XDG Portal Shortcut Listener (Wayland/KDE)
     let portal_listener = PortalShortcutListener::new(cmd_tx.clone());
-    tokio::spawn(async move {
+    let portal_handle = tokio::spawn(async move {
         if let Err(err) = portal_listener.run().await {
             tracing::warn!("Portal shortcut listener ended: {err}");
         }
     });
+
+    // Set once a deliberate Shutdown has been requested. Checked before starting
+    // recordings and before any output/notification so an in-flight transcription
+    // cannot inject text after Quit.
+    let shutting_down = Arc::new(AtomicBool::new(false));
 
     // Spawn Linux evdev Hardware Hotkey Listener (Push-to-Talk)
     let mut evdev_handle = if active_config.evdev_hotkey_enabled {
@@ -728,6 +748,11 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
     }
 
     while let Some(cmd) = cmd_rx.recv().await {
+        if matches!(cmd, IpcCommand::Shutdown) {
+            tracing::info!("Shutdown IPC command received; tearing down daemon");
+            shutting_down.store(true, Ordering::SeqCst);
+            break;
+        }
         tracing::info!("Daemon event loop received: {:?}", cmd);
         let action = {
             let mut eng = engine.lock().await;
@@ -742,6 +767,8 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
                     Action::None
                 }
                 IpcCommand::Subscribe => Action::None,
+                // Handled before this match (breaks the loop); unreachable here.
+                IpcCommand::Shutdown => Action::None,
                 IpcCommand::ReloadConfig => {
                     tracing::info!(
                         "ReloadConfig IPC command received. Reloading configuration from disk..."
@@ -827,6 +854,10 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
 
         match action {
             Action::StartRecording => {
+                if shutting_down.load(Ordering::SeqCst) {
+                    tracing::info!("Ignoring StartRecording: daemon is shutting down");
+                    continue;
+                }
                 tracing::info!("Action: StartRecording");
                 notifications.read().await.recording_started();
                 sound.read().await.play(EarconType::RecordingStarted);
@@ -936,6 +967,7 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
                     let engine_clone = Arc::clone(&engine);
                     let bridge_clone = Arc::clone(&bridge);
                     let history_mgr_clone = Arc::clone(&history_mgr);
+                    let shutting_down_clone = Arc::clone(&shutting_down);
 
                     let noise_suppression = active_config.noise_suppression;
                     let save_audio_dir = active_config.save_audio_dir.clone();
@@ -1001,18 +1033,24 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
                                             );
                                         }
 
-                                        bridge_clone.set_completed(&text, duration);
-                                        notif_clone.read().await.transcribed(&text);
-                                        sound_clone.read().await.play(EarconType::Transcribed);
+                                        if shutting_down_clone.load(Ordering::SeqCst) {
+                                            tracing::info!(
+                                                "Daemon is shutting down; skipping output injection of in-flight transcription"
+                                            );
+                                        } else {
+                                            bridge_clone.set_completed(&text, duration);
+                                            notif_clone.read().await.transcribed(&text);
+                                            sound_clone.read().await.play(EarconType::Transcribed);
 
-                                        let mut out = output_mgr_clone.lock().await;
-                                        if let Err(err) = out.output_text(&text) {
-                                            tracing::error!("Output injection error: {err}");
-                                            notif_clone
-                                                .read()
-                                                .await
-                                                .error(&format!("Output error: {err}"));
-                                            sound_clone.read().await.play(EarconType::Error);
+                                            let mut out = output_mgr_clone.lock().await;
+                                            if let Err(err) = out.output_text(&text) {
+                                                tracing::error!("Output injection error: {err}");
+                                                notif_clone
+                                                    .read()
+                                                    .await
+                                                    .error(&format!("Output error: {err}"));
+                                                sound_clone.read().await.play(EarconType::Error);
+                                            }
                                         }
                                     }
                                     Err(err) => {
@@ -1078,6 +1116,45 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
 
             Action::None => {}
         }
+    }
+
+    if shutting_down.load(Ordering::SeqCst) {
+        // Ordered teardown for a deliberate, acknowledged shutdown.
+
+        // 1. Stop accepting new hotkey events.
+        if let Some(handle) = evdev_handle.take() {
+            handle.stop();
+        }
+
+        // 2. Stop the portal listener.
+        portal_handle.abort();
+
+        // 3. Abort an active recording without transcription/encoding.
+        if let Some(recording) = active_recording.lock().await.take() {
+            drop(recording);
+        }
+
+        // 4. Release the uinput virtual keyboard promptly (defense in depth).
+        if let Ok(mut out) = output_mgr.try_lock() {
+            out.release_virtual_keyboard();
+        }
+
+        // 5. Remove the socket before acknowledging so it is gone even if the
+        //    unified-mode tray exits this process immediately after the reply.
+        let _ = std::fs::remove_file(&active_config.socket_path);
+
+        // 6. Wake the IPC handler, then wait until the reply has been flushed.
+        shutdown_coord.notify_complete();
+        let _ = shutdown_coord
+            .wait_reply_sent(hotkey::ipc::SHUTDOWN_REPLY_TIMEOUT)
+            .await;
+
+        // 7. Let the IPC server finish its own cleanup, bounded.
+        let _ = tokio::time::timeout(Duration::from_millis(500), ipc_handle).await;
+
+        // 8. Best-effort final unlink and normal return (exit code 0).
+        let _ = std::fs::remove_file(&active_config.socket_path);
+        tracing::info!("OpenWhisper daemon shut down cleanly");
     }
 
     Ok(())

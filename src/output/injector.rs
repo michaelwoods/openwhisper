@@ -146,6 +146,15 @@ impl TextInjector {
         }
     }
 
+    /// Releases the virtual keyboard device (Linux uinput) promptly so the
+    /// kernel device node is torn down during daemon shutdown. No-op elsewhere.
+    pub fn release_virtual_keyboard(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            self.virtual_device = None;
+        }
+    }
+
     /// Emits Ctrl+V keystroke to paste clipboard text into active window
     pub fn paste_clipboard(&mut self, delay_ms: u64) -> Result<()> {
         if delay_ms > 0 {

@@ -132,6 +132,34 @@ fn test_cli_ui_help() {
 }
 
 #[test]
+fn test_cli_stop_help() {
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    cmd.args(["stop", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Stop the running OpenWhisper daemon cleanly",
+        ));
+}
+
+#[test]
+fn test_cli_stop_without_daemon_reports_not_running() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let runtime_dir = temp.path().join("run");
+    let config_home = temp.path().join("config");
+    std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+    std::fs::create_dir_all(&config_home).expect("create config dir");
+
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    cmd.env("XDG_RUNTIME_DIR", &runtime_dir)
+        .env("XDG_CONFIG_HOME", &config_home)
+        .arg("stop")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("daemon is not running"));
+}
+
+#[test]
 fn test_install_script_contains_no_sudo_execution() {
     let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/install.sh");
     let content = std::fs::read_to_string(&script_path).expect("read scripts/install.sh");

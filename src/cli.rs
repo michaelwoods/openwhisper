@@ -36,6 +36,10 @@ pub enum Commands {
     /// Query the running daemon status
     Status,
 
+    /// Stop the running OpenWhisper daemon cleanly
+    #[command(alias = "quit", alias = "shutdown")]
+    Stop,
+
     /// Standalone one-shot recording & transcription (press Enter to stop)
     Record {
         /// Optional recording duration in seconds (stops automatically after this duration)
@@ -170,6 +174,18 @@ mod tests {
 
         let cancel = Cli::try_parse_from(["openwhisper", "cancel"]).unwrap();
         assert!(matches!(cancel.command, Some(Commands::Cancel)));
+    }
+
+    #[test]
+    fn test_cli_stop_aliases() {
+        let stop = Cli::try_parse_from(["openwhisper", "stop"]).unwrap();
+        assert!(matches!(stop.command, Some(Commands::Stop)));
+
+        let quit = Cli::try_parse_from(["openwhisper", "quit"]).unwrap();
+        assert!(matches!(quit.command, Some(Commands::Stop)));
+
+        let shutdown = Cli::try_parse_from(["openwhisper", "shutdown"]).unwrap();
+        assert!(matches!(shutdown.command, Some(Commands::Stop)));
     }
 
     #[test]

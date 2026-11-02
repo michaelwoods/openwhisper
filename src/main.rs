@@ -607,6 +607,24 @@ impl UiBridge {
     }
 }
 
+/// Where a deliberate daemon shutdown originated.
+///
+/// An IPC-driven shutdown has a client awaiting the acknowledged reply, whereas
+/// a signal-driven (`SIGINT`/`SIGTERM`) shutdown has no client to notify, so the
+/// daemon can skip the bounded reply-flush wait for the signal case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShutdownOrigin {
+    Ipc,
+    Signal,
+}
+
+impl ShutdownOrigin {
+    /// Whether teardown must wait for the IPC shutdown reply to be flushed.
+    fn requires_reply_wait(self) -> bool {
+        matches!(self, ShutdownOrigin::Ipc)
+    }
+}
+
 async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
     // Single-instance guard: if another daemon is already running, exit cleanly
     let _instance_lock =
@@ -747,10 +765,41 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
         println!("  • UI service: run `openwhisper ui` to show system tray icon and HUD overlay.");
     }
 
-    while let Some(cmd) = cmd_rx.recv().await {
+    // Install OS signal handlers so `Ctrl+C` (SIGINT) and `systemctl --user stop`
+    // (SIGTERM) drive the same ordered teardown as an IPC `Shutdown` command.
+    #[cfg(unix)]
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("failed to install SIGTERM handler")?;
+
+    let mut shutdown_origin = ShutdownOrigin::Ipc;
+    loop {
+        // Race the next IPC command against an OS termination signal.
+        let next_cmd = tokio::select! {
+            cmd = cmd_rx.recv() => cmd,
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Received SIGINT; tearing down daemon");
+                shutting_down.store(true, Ordering::SeqCst);
+                shutdown_origin = ShutdownOrigin::Signal;
+                break;
+            }
+            _ = async {
+                #[cfg(unix)]
+                sigterm.recv().await;
+            } => {
+                tracing::info!("Received SIGTERM; tearing down daemon");
+                shutting_down.store(true, Ordering::SeqCst);
+                shutdown_origin = ShutdownOrigin::Signal;
+                break;
+            }
+        };
+        let Some(cmd) = next_cmd else {
+            // Command channel closed; nothing left to serve.
+            break;
+        };
         if matches!(cmd, IpcCommand::Shutdown) {
             tracing::info!("Shutdown IPC command received; tearing down daemon");
             shutting_down.store(true, Ordering::SeqCst);
+            shutdown_origin = ShutdownOrigin::Ipc;
             break;
         }
         tracing::info!("Daemon event loop received: {:?}", cmd);
@@ -1144,10 +1193,14 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
         let _ = std::fs::remove_file(&active_config.socket_path);
 
         // 6. Wake the IPC handler, then wait until the reply has been flushed.
+        //    Signal-driven teardown has no IPC client awaiting a reply, so skip
+        //    the bounded wait to make `Ctrl+C` / `SIGTERM` feel instant.
         shutdown_coord.notify_complete();
-        let _ = shutdown_coord
-            .wait_reply_sent(hotkey::ipc::SHUTDOWN_REPLY_TIMEOUT)
-            .await;
+        if shutdown_origin.requires_reply_wait() {
+            let _ = shutdown_coord
+                .wait_reply_sent(hotkey::ipc::SHUTDOWN_REPLY_TIMEOUT)
+                .await;
+        }
 
         // 7. Let the IPC server finish its own cleanup, bounded.
         let _ = tokio::time::timeout(Duration::from_millis(500), ipc_handle).await;
@@ -1158,4 +1211,19 @@ async fn run_daemon(config: Config, with_ui: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ShutdownOrigin;
+
+    #[test]
+    fn ipc_shutdown_requires_reply_wait() {
+        assert!(ShutdownOrigin::Ipc.requires_reply_wait());
+    }
+
+    #[test]
+    fn signal_shutdown_skips_reply_wait() {
+        assert!(!ShutdownOrigin::Signal.requires_reply_wait());
+    }
 }

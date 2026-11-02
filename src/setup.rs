@@ -901,6 +901,31 @@ mod tests {
     }
 
     #[test]
+    fn test_service_unit_contains_exec_stop() {
+        assert!(
+            SERVICE_UNIT.contains("ExecStop=%h/.local/bin/openwhisper stop"),
+            "embedded openwhisper.service must declare ExecStop: {SERVICE_UNIT}"
+        );
+    }
+
+    #[test]
+    fn test_installed_service_unit_contains_exec_stop() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let temp_home = temp_dir.path();
+        let dummy_exe = temp_home.join("dummy_openwhisper");
+        fs::write(&dummy_exe, b"dummy").unwrap();
+
+        run_setup_for_home(&dummy_exe, temp_home).expect("setup must succeed");
+
+        let unit_path = temp_home.join(".config/systemd/user/openwhisper.service");
+        let installed = fs::read_to_string(&unit_path).expect("read installed unit");
+        assert!(
+            installed.contains("ExecStop=%h/.local/bin/openwhisper stop"),
+            "installed unit must declare ExecStop: {installed}"
+        );
+    }
+
+    #[test]
     fn test_setup_path_does_not_create_xdg_autostart() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
         let temp_home = temp_dir.path();

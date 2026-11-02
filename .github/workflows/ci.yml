@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
@@ -13,10 +14,12 @@ env:
 jobs:
   ci:
     name: Build, Lint & Test
-    runs-on: rust
+    runs-on: harness
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Verify code formatting
         run: cargo fmt --check

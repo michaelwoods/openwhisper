@@ -4,7 +4,7 @@ use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 use std::time::Duration;
 
-use super::formatting::{FormattingMode, build_whisper_prompt, format_transcription};
+use super::formatting::{FormattingMode, build_whisper_prompt, format_transcription_with_options};
 use crate::config::Config;
 
 /// High-Performance Asynchronous STT Client
@@ -28,6 +28,7 @@ pub struct TranscriptionClient {
     api_key: Option<String>,
     formatting_mode: FormattingMode,
     trailing_space: bool,
+    parse_spoken_punctuation: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,6 +59,7 @@ impl TranscriptionClient {
             api_key: config.api_key.clone(),
             formatting_mode: config.formatting_mode,
             trailing_space: config.trailing_space,
+            parse_spoken_punctuation: config.parse_spoken_punctuation,
         }
     }
 
@@ -139,7 +141,12 @@ impl TranscriptionClient {
             );
         }
 
-        parse_transcription_response(&body_text, self.formatting_mode, self.trailing_space)
+        parse_transcription_response_with_options(
+            &body_text,
+            self.formatting_mode,
+            self.trailing_space,
+            self.parse_spoken_punctuation,
+        )
     }
 }
 
@@ -149,9 +156,24 @@ pub fn parse_transcription_response(
     mode: FormattingMode,
     trailing_space: bool,
 ) -> Result<String> {
+    parse_transcription_response_with_options(body_text, mode, trailing_space, false)
+}
+
+/// Like [`parse_transcription_response`], optionally expanding spoken punctuation.
+pub fn parse_transcription_response_with_options(
+    body_text: &str,
+    mode: FormattingMode,
+    trailing_space: bool,
+    parse_spoken_punctuation: bool,
+) -> Result<String> {
     if let Ok(res) = serde_json::from_str::<TranscriptionResponse>(body_text) {
         if let Some(text) = res.text {
-            return Ok(format_transcription(&text, mode, trailing_space));
+            return Ok(format_transcription_with_options(
+                &text,
+                mode,
+                trailing_space,
+                parse_spoken_punctuation,
+            ));
         }
         if let Some(err) = res.error {
             bail!("STT API returned error object: {}", err);
@@ -213,5 +235,28 @@ mod tests {
         assert_eq!(client.formatting_mode(), FormattingMode::KebabCase);
         assert!(client.prompt().unwrap().contains("Technical notes"));
         assert!(client.prompt().unwrap().contains("Wayland, Rust"));
+    }
+
+    #[test]
+    fn test_parse_response_spoken_punctuation_opt_in() {
+        let json = r#"{"text": "Hello comma world period"}"#;
+        let off =
+            parse_transcription_response_with_options(json, FormattingMode::Standard, false, false)
+                .unwrap();
+        assert_eq!(off, "Hello comma world period");
+        let on =
+            parse_transcription_response_with_options(json, FormattingMode::Standard, false, true)
+                .unwrap();
+        assert_eq!(on, "Hello, world.");
+    }
+
+    #[test]
+    fn test_client_spoken_punctuation_from_config() {
+        assert!(!TranscriptionClient::new(&Config::default()).parse_spoken_punctuation);
+        let config = Config {
+            parse_spoken_punctuation: true,
+            ..Default::default()
+        };
+        assert!(TranscriptionClient::new(&config).parse_spoken_punctuation);
     }
 }

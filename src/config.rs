@@ -61,6 +61,11 @@ pub struct Config {
     #[serde(default = "default_true")]
     pub trailing_space: bool,
 
+    /// Expands dictated punctuation commands ("period", "new line", ...) into real
+    /// punctuation during post-processing. Opt-in; disabled by default.
+    #[serde(default = "default_false", alias = "spoken_punctuation")]
+    pub parse_spoken_punctuation: bool,
+
     #[serde(default = "default_false")]
     pub vad_enabled: bool,
 
@@ -257,6 +262,7 @@ impl Default for Config {
             vocabulary: default_vocabulary(),
             formatting_mode: FormattingMode::Standard,
             trailing_space: default_true(),
+            parse_spoken_punctuation: default_false(),
             vad_enabled: default_false(),
             vad_silence_timeout_ms: default_vad_silence_timeout_ms(),
             vad_energy_threshold: default_vad_energy_threshold(),
@@ -446,6 +452,30 @@ mod tests {
         "#;
         let parsed: Config = toml::from_str(toml_data).expect("Failed to parse trailing space");
         assert!(!parsed.trailing_space);
+    }
+
+    #[test]
+    fn test_parse_spoken_punctuation_defaults_off_and_persists() {
+        assert!(!Config::default().parse_spoken_punctuation);
+
+        let parsed: Config = toml::from_str("").expect("Empty config should parse");
+        assert!(!parsed.parse_spoken_punctuation);
+
+        let enabled: Config = toml::from_str("parse_spoken_punctuation = true")
+            .expect("Failed to parse spoken punctuation toggle");
+        assert!(enabled.parse_spoken_punctuation);
+
+        let mut cfg = Config::default();
+        cfg.parse_spoken_punctuation = true;
+        let toml_str = toml::to_string_pretty(&cfg).expect("Serialization failed");
+        assert!(toml_str.contains("parse_spoken_punctuation = true"));
+        let roundtrip: Config = toml::from_str(&toml_str).expect("Deserialization failed");
+        assert!(roundtrip.parse_spoken_punctuation);
+    }
+
+    #[test]
+    fn test_parse_spoken_punctuation_rejects_non_boolean() {
+        assert!(toml::from_str::<Config>("parse_spoken_punctuation = \"yes\"").is_err());
     }
 
     #[test]

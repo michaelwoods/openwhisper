@@ -28,7 +28,8 @@ This document tracks upcoming milestones, proposed features, and architectural p
 Whisper models vary in how reliably they handle explicit punctuation instructions. Sometimes "new line" is transcribed literally as words, or users want to speak formatting commands without an LLM.
 
 ### Planned Features
-- Configurable toggle: **"Parse Spoken Punctuation"** in settings and `config.toml`.
+- Configurable toggle: **"Parse Spoken Punctuation"** in settings and `config.toml` (`parse_spoken_punctuation`, default off; `config.toml` implemented, settings panel not yet wired).
+- Expansion runs on the raw transcript before the casing step, so `snake_case`/`camelCase`/`kebab-case`/`raw` still drop punctuation by design.
 - Post-processing regex mapping:
   - `"new line"` / `"next line"` $\to$ `\n`
   - `"new paragraph"` $\to$ `\n\n`

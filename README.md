@@ -116,6 +116,10 @@ hud_position = "bottom_center" # "bottom_center", "top_center", "bottom_right", 
 
 # Formatting & Vocabulary
 formatting_mode = "standard"   # "standard", "snake_case", "camel_case", "kebab_case", "raw"
+# Expand spoken "period", "comma", "new line", "new paragraph", "question mark", ... into real
+# punctuation (opt-in). Runs before the casing step, so snake_case/camel_case/kebab_case/raw
+# still drop punctuation by design; the expansion is only visible in "standard" mode.
+parse_spoken_punctuation = false
 vocabulary = ["Rust", "Wayland", "OpenVINO", "cpal", "tokio"]
 ```
 

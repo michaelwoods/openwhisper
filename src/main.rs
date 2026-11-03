@@ -350,8 +350,8 @@ async fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Doctor { json } => {
-            doctor::run_doctor(&config, json).await?;
+        Commands::Doctor { json, ci } => {
+            doctor::run_doctor(&config, json, ci).await?;
             Ok(())
         }
 

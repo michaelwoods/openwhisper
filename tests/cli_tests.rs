@@ -196,3 +196,143 @@ fn test_setup_rs_contains_no_sudo_execution() {
         );
     }
 }
+
+/// Builds a hermetic `openwhisper doctor` invocation: isolated HOME/XDG dirs, no display
+/// server variables, and a config whose STT endpoint is a closed local port.
+fn hermetic_doctor(args: &[&str]) -> (Command, tempfile::TempDir) {
+    let home = tempfile::tempdir().expect("tempdir");
+    let config_dir = home.path().join("config").join("openwhisper");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    // Reserve then release a port so connecting to it yields "Connection refused".
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    std::fs::write(
+        config_dir.join("config.toml"),
+        format!("server_url = \"http://127.0.0.1:{port}/v1/audio/transcriptions\"\n"),
+    )
+    .unwrap();
+    let runtime = home.path().join("runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+
+    let mut cmd = Command::cargo_bin("openwhisper").unwrap();
+    cmd.env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_DATA_HOME", home.path().join("data"))
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .args(args);
+    (cmd, home)
+}
+
+#[test]
+fn test_cli_doctor_ci_json_schema_and_exit_zero() {
+    let (mut cmd, _home) = hermetic_doctor(&["doctor", "--ci", "--json"]);
+    let output = cmd.output().expect("run doctor --ci --json");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "doctor --ci must exit 0 on a bare host; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // stdout is reserved for exactly one JSON document.
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("doctor --ci --json must output valid JSON");
+
+    let root = parsed.as_object().expect("root object");
+    let mut root_keys: Vec<&str> = root.keys().map(String::as_str).collect();
+    root_keys.sort_unstable();
+    assert_eq!(root_keys, ["checks", "overall_status", "timestamp"]);
+    assert!(root["timestamp"].as_str().is_some_and(|t| !t.is_empty()));
+    let statuses = ["pass", "warn", "fail"];
+    let overall = root["overall_status"].as_str().expect("overall_status str");
+    assert!(statuses.contains(&overall));
+    assert_ne!(overall, "fail");
+
+    let checks = root["checks"].as_array().expect("checks array");
+    assert!(!checks.is_empty(), "CI mode must not emit empty checks");
+    let mut names = Vec::new();
+    for check in checks {
+        let obj = check.as_object().expect("check object");
+        for key in obj.keys() {
+            assert!(
+                ["name", "status", "summary", "details", "remediation"].contains(&key.as_str()),
+                "unexpected key {key}"
+            );
+        }
+        let name = obj["name"].as_str().expect("name str");
+        assert!(!name.is_empty());
+        names.push(name.to_string());
+        assert!(statuses.contains(&obj["status"].as_str().expect("status str")));
+        assert!(obj["summary"].as_str().is_some_and(|s| !s.is_empty()));
+        let details = obj["details"].as_array().expect("details array");
+        assert!(
+            !details.is_empty(),
+            "{name}: real check logic must populate details"
+        );
+        assert!(details.iter().all(|d| d.is_string()));
+        if let Some(rem) = obj.get("remediation") {
+            assert!(rem.is_string());
+        }
+    }
+    assert_eq!(
+        names,
+        [
+            "Configuration",
+            "Virtual Input & Wayland",
+            "Daemon & IPC Service",
+            "Desktop Integration"
+        ]
+    );
+
+    // The retained daemon check ran for real against the (absent) socket.
+    let daemon = checks
+        .iter()
+        .find(|c| c["name"] == "Daemon & IPC Service")
+        .unwrap();
+    assert_eq!(daemon["status"], "warn");
+    // The configuration check really loaded the hermetic config file.
+    let config_check = &checks[0];
+    assert!(
+        config_check["details"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d.as_str().unwrap().contains("127.0.0.1")),
+        "Configuration check must reflect the loaded config.toml"
+    );
+}
+
+#[test]
+fn test_cli_doctor_default_connection_refused_still_fails() {
+    let (mut cmd, _home) = hermetic_doctor(&["doctor", "--json"]);
+    let output = cmd.output().expect("run doctor --json");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "default doctor must exit 1 when the STT endpoint refuses connections"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON on failure");
+    assert_eq!(parsed["overall_status"], "fail");
+    let stt = parsed["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "STT Inference Backend")
+        .expect("default mode keeps the STT check");
+    assert_eq!(stt["status"], "fail");
+    assert!(
+        stt["summary"]
+            .as_str()
+            .unwrap()
+            .contains("Connection refused"),
+        "unexpected STT summary: {}",
+        stt["summary"]
+    );
+}

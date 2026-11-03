@@ -132,6 +132,11 @@ pub enum Commands {
         /// Output diagnostic results formatted as JSON
         #[arg(long, default_value_t = false)]
         json: bool,
+
+        /// CI-safe mode: skip the host-dependent audio-capture and STT-endpoint checks and
+        /// run only the environment-independent checks (real logic, no stubs)
+        #[arg(long, default_value_t = false)]
+        ci: bool,
     },
 
     /// Run OpenWhisper graphical UI service (System Tray icon & Floating HUD overlay)

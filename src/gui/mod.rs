@@ -709,6 +709,8 @@ pub fn run_gui(config: Config) -> Result<()> {
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
+    use std::path::Path;
 
     #[test]
     fn test_vocabulary_vec_model_operations() {
@@ -731,21 +733,217 @@ mod tests {
         assert_eq!(vocab_model.row_data(1).unwrap().as_str(), "Wayland");
     }
 
+    /// Returns `true` if `path` exists and is a Unix domain socket (plain existence on
+    /// non-Unix targets).
+    fn is_socket(path: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            std::fs::metadata(path)
+                .map(|m| m.file_type().is_socket())
+                .unwrap_or(false)
+        }
+        #[cfg(not(unix))]
+        {
+            path.exists()
+        }
+    }
+
+    /// Pure display-availability decision. A display counts as available only if a
+    /// socket can actually be reached: the Wayland socket at
+    /// `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` (or the absolute `$WAYLAND_DISPLAY` path),
+    /// or the local X11 socket `<x11_dir>/X<n>` for a local `DISPLAY` (`:n[.screen]` /
+    /// `unix:n`). Merely having the variables set never counts. Socket probing is
+    /// injected via `socket_exists` so the decision is unit-testable.
+    fn display_available(
+        wayland_display: Option<&OsStr>,
+        xdg_runtime_dir: Option<&OsStr>,
+        display: Option<&OsStr>,
+        x11_socket_dir: &Path,
+        socket_exists: impl Fn(&Path) -> bool,
+    ) -> bool {
+        if let Some(wl) = wayland_display.filter(|v| !v.is_empty()) {
+            let wl_path = Path::new(wl);
+            let candidate = if wl_path.is_absolute() {
+                Some(wl_path.to_path_buf())
+            } else {
+                xdg_runtime_dir
+                    .filter(|d| !d.is_empty())
+                    .map(|d| Path::new(d).join(wl_path))
+            };
+            if candidate.is_some_and(|p| socket_exists(&p)) {
+                return true;
+            }
+        }
+
+        if let Some(disp) = display.and_then(|d| d.to_str()).filter(|d| !d.is_empty()) {
+            let local = disp
+                .strip_prefix("unix:")
+                .or_else(|| disp.strip_prefix(':'));
+            if let Some(rest) = local {
+                let num = rest.split('.').next().unwrap_or("");
+                if !num.is_empty()
+                    && num.chars().all(|c| c.is_ascii_digit())
+                    && socket_exists(&x11_socket_dir.join(format!("X{num}")))
+                {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Display availability for the current process environment.
+    fn display_available_from_env() -> bool {
+        display_available(
+            std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+            std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
+            std::env::var_os("DISPLAY").as_deref(),
+            Path::new("/tmp/.X11-unix"),
+            is_socket,
+        )
+    }
+
+    /// Runs `body` only if a display is available; otherwise skips loudly.
+    /// Returns whether `body` ran.
+    fn run_if_display_available(available: bool, test_name: &str, body: impl FnOnce()) -> bool {
+        if !available {
+            eprintln!(
+                "SKIP {test_name}: no reachable Wayland/X11 display socket \
+                 (WAYLAND_DISPLAY / DISPLAY unset or pointing at a dead socket) — \
+                 Slint window construction unavailable"
+            );
+            return false;
+        }
+        body();
+        true
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_display_available_negative_controls() {
+        let runtime = tempfile::tempdir().unwrap();
+        let x11 = tempfile::tempdir().unwrap();
+        let rt = Some(runtime.path().as_os_str());
+
+        // Nothing set.
+        assert!(!display_available(None, None, None, x11.path(), is_socket));
+        // Set-but-dead WAYLAND_DISPLAY: variable present, no socket in runtime dir.
+        assert!(!display_available(
+            Some(OsStr::new("wayland-0")),
+            rt,
+            None,
+            x11.path(),
+            is_socket
+        ));
+        // Wayland name but no runtime dir to resolve it against.
+        assert!(!display_available(
+            Some(OsStr::new("wayland-0")),
+            None,
+            None,
+            x11.path(),
+            is_socket
+        ));
+        // Set-but-dead DISPLAY, and non-local / malformed DISPLAY values.
+        for d in [":0", ":0.0", "unix:0", "remote:0", ":", ":x", ""] {
+            assert!(!display_available(
+                None,
+                None,
+                Some(OsStr::new(d)),
+                x11.path(),
+                is_socket
+            ));
+        }
+        // A regular file (not a socket) at the Wayland path does not count.
+        std::fs::write(runtime.path().join("wayland-0"), b"").unwrap();
+        assert!(!display_available(
+            Some(OsStr::new("wayland-0")),
+            rt,
+            None,
+            x11.path(),
+            is_socket
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_display_available_positive_controls() {
+        use std::os::unix::net::UnixListener;
+        let runtime = tempfile::tempdir().unwrap();
+        let x11 = tempfile::tempdir().unwrap();
+        let rt = Some(runtime.path().as_os_str());
+
+        // Real Wayland socket (relative name resolved against XDG_RUNTIME_DIR).
+        let wl_sock = runtime.path().join("wayland-test");
+        let _wl = UnixListener::bind(&wl_sock).unwrap();
+        assert!(display_available(
+            Some(OsStr::new("wayland-test")),
+            rt,
+            None,
+            x11.path(),
+            is_socket
+        ));
+        // Absolute WAYLAND_DISPLAY path.
+        assert!(display_available(
+            Some(wl_sock.as_os_str()),
+            None,
+            None,
+            x11.path(),
+            is_socket
+        ));
+        // Real X11 socket for DISPLAY=:7 / :7.0 / unix:7.
+        let _x = UnixListener::bind(x11.path().join("X7")).unwrap();
+        for d in [":7", ":7.0", "unix:7"] {
+            assert!(display_available(
+                None,
+                None,
+                Some(OsStr::new(d)),
+                x11.path(),
+                is_socket
+            ));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_skip_gate_proceeds_with_live_socket_and_skips_dead_one() {
+        use std::os::unix::net::UnixListener;
+        let runtime = tempfile::tempdir().unwrap();
+        let x11 = tempfile::tempdir().unwrap();
+        let rt = Some(runtime.path().as_os_str());
+        let wl = Some(OsStr::new("wayland-gate"));
+
+        // Dead socket: the gate must skip (body never runs, nothing panics).
+        let avail = display_available(wl, rt, None, x11.path(), is_socket);
+        let ran = run_if_display_available(avail, "gate_negative", || {
+            panic!("body must not run when WAYLAND_DISPLAY is set but dead")
+        });
+        assert!(!ran);
+
+        // Live socket: the gate must proceed to the body (window construction).
+        let _listener = UnixListener::bind(runtime.path().join("wayland-gate")).unwrap();
+        let avail = display_available(wl, rt, None, x11.path(), is_socket);
+        let mut constructed = false;
+        let ran = run_if_display_available(avail, "gate_positive", || constructed = true);
+        assert!(ran && constructed, "skip must not be a blanket disable");
+    }
+
     #[test]
     fn test_settings_window_comprehensive_suite() {
         // Slint's femtovg/software backend still needs a winit event loop, and winit
-        // refuses to initialise without a display server. The headless QA gate (CI and
-        // the coding harness) unsets WAYLAND_DISPLAY/DISPLAY on purpose so it never
-        // touches a live desktop session; skip loudly there instead of failing the gate
-        // on an environment condition rather than on the code under test.
-        if std::env::var_os("WAYLAND_DISPLAY").is_none() && std::env::var_os("DISPLAY").is_none() {
-            eprintln!(
-                "SKIP test_settings_window_comprehensive_suite: no display server \
-                 (WAYLAND_DISPLAY / DISPLAY unset) — Slint window construction unavailable"
-            );
-            return;
-        }
+        // refuses to initialise without a reachable display server. The headless QA gate
+        // (CI and the coding harness) may have WAYLAND_DISPLAY/DISPLAY exported without
+        // any compositor socket behind them; skip loudly in that case instead of failing
+        // the gate on an environment condition rather than on the code under test.
+        run_if_display_available(
+            display_available_from_env(),
+            "test_settings_window_comprehensive_suite",
+            settings_window_comprehensive_suite_body,
+        );
+    }
 
+    fn settings_window_comprehensive_suite_body() {
         let ui = SettingsWindow::new().expect("Failed to create SettingsWindow");
 
         // --- 1. Direct Property Setters and Getters ---

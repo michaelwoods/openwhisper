@@ -77,6 +77,27 @@ pub async fn diagnose(config: &Config) -> DoctorReport {
     report
 }
 
+/// Runs the CI-safe diagnostic suite (`openwhisper doctor --ci`).
+///
+/// This is the full suite minus the two checks whose *failure* is determined by the
+/// host rather than by the code under test: [`check_audio_hardware`] (needs a real
+/// capture device) and [`check_stt_backend`] (needs a reachable inference server).
+/// Every retained check runs its real, unmodified logic; none is stubbed. The retained
+/// checks report `Warn` (not `Fail`) when `/dev/uinput`, a display server, the daemon
+/// socket or desktop assets are absent, so a bare runner exits `0`. The exit code
+/// still follows the report's overall status, so any retained check that reports
+/// `Fail` (or a crash/panic in a check) turns the build red.
+pub async fn diagnose_ci(config: &Config) -> DoctorReport {
+    let mut report = DoctorReport::new();
+
+    report.add(check_config(config));
+    report.add(check_wayland_and_input());
+    report.add(check_daemon_and_ipc(config).await);
+    report.add(check_desktop_integration());
+
+    report
+}
+
 /// 1. Configuration file check
 pub fn check_config(config: &Config) -> CheckResult {
     let config_path = Config::config_path();
@@ -672,9 +693,25 @@ pub fn format_terminal_report(report: &DoctorReport) -> String {
     out
 }
 
+/// Process exit code for a report: `1` when the overall status is `Fail`, else `0`.
+pub fn exit_code_for(report: &DoctorReport) -> i32 {
+    if report.overall_status == CheckStatus::Fail {
+        1
+    } else {
+        0
+    }
+}
+
 /// Executes the doctor command from the CLI.
-pub async fn run_doctor(config: &Config, json: bool) -> Result<()> {
-    let report = diagnose(config).await;
+///
+/// With `ci == true` the CI-safe suite ([`diagnose_ci`]) is run instead of the full
+/// suite. Only the report goes to `stdout`; the process exits `1` on a failing report.
+pub async fn run_doctor(config: &Config, json: bool, ci: bool) -> Result<()> {
+    let report = if ci {
+        diagnose_ci(config).await
+    } else {
+        diagnose(config).await
+    };
 
     if json {
         let json_str = serde_json::to_string_pretty(&report)
@@ -684,8 +721,9 @@ pub async fn run_doctor(config: &Config, json: bool) -> Result<()> {
         print!("{}", format_terminal_report(&report));
     }
 
-    if report.overall_status == CheckStatus::Fail {
-        std::process::exit(1);
+    let code = exit_code_for(&report);
+    if code != 0 {
+        std::process::exit(code);
     }
 
     Ok(())
@@ -760,5 +798,62 @@ mod tests {
     fn test_check_desktop_integration() {
         let res = check_desktop_integration();
         assert_eq!(res.name, "Desktop Integration");
+    }
+
+    #[test]
+    fn test_exit_code_for_maps_overall_status() {
+        let mut report = DoctorReport::new();
+        assert_eq!(exit_code_for(&report), 0);
+        report.add(CheckResult {
+            name: "W".to_string(),
+            status: CheckStatus::Warn,
+            summary: String::new(),
+            details: vec![],
+            remediation: None,
+        });
+        assert_eq!(exit_code_for(&report), 0);
+        report.add(CheckResult {
+            name: "F".to_string(),
+            status: CheckStatus::Fail,
+            summary: String::new(),
+            details: vec![],
+            remediation: None,
+        });
+        assert_eq!(exit_code_for(&report), 1);
+    }
+
+    #[tokio::test]
+    async fn test_diagnose_ci_runs_real_checks_and_omits_host_dependent_ones() {
+        // Unreachable socket: the daemon check must run for real and report Warn.
+        let config = Config {
+            socket_path: "/nonexistent-openwhisper-test-dir/openwhisper.sock".to_string(),
+            ..Config::default()
+        };
+        let report = diagnose_ci(&config).await;
+        let names: Vec<&str> = report.checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Configuration",
+                "Virtual Input & Wayland",
+                "Daemon & IPC Service",
+                "Desktop Integration"
+            ]
+        );
+        for check in &report.checks {
+            assert!(
+                !check.summary.is_empty(),
+                "{} has empty summary",
+                check.name
+            );
+            assert!(!check.details.is_empty(), "{} has no details", check.name);
+        }
+        let daemon = report
+            .checks
+            .iter()
+            .find(|c| c.name == "Daemon & IPC Service")
+            .unwrap();
+        assert_eq!(daemon.status, CheckStatus::Warn);
+        assert_ne!(report.overall_status, CheckStatus::Fail);
     }
 }

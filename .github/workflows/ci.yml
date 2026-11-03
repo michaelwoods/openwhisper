@@ -32,3 +32,6 @@ jobs:
 
       - name: Run all tests (unit & integration)
         run: cargo test --all-targets
+
+      - name: CI-safe system diagnostics (doctor)
+        run: cargo run -- doctor --ci --json

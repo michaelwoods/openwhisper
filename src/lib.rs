@@ -2,6 +2,7 @@ pub mod audio;
 pub mod autostart;
 pub mod cli;
 pub mod config;
+pub mod dataset;
 pub mod doctor;
 pub mod gui;
 pub mod history;

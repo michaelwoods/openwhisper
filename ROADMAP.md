@@ -10,7 +10,7 @@ This document tracks upcoming milestones, proposed features, and architectural p
 | Priority | Feature / Initiative | Target Area | Status | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | **P1** | **Spoken Punctuation & Formatting Macros** | Transcription Engine | **Next Candidate** | Spoken punctuation ("new line" $\to$ `\n`, "period" $\to$ `.`) |
-| **P1** | **Dataset Exporter & Manifest Tool** | Audio / Dataset | **Next Candidate** | `openwhisper export-tts-dataset` (LJSpeech / Piper / XTTS) |
+| **P1** | **Dataset Exporter & Manifest Tool** | Audio / Dataset | **Implemented** | `openwhisper export-tts-dataset` (LJSpeech / Piper / XTTS) |
 | **P1** | **Automated Udev Rule Generator** | Desktop / Permissions| **Planned** | `openwhisper setup --udev` (dynamic seat uaccess for Ubuntu/Arch) |
 | **P2** | **Offline Spool Queue & Retry Resiliency** | Pipeline / Network | **Planned** | Local retry spool (`~/.cache/...`) & optional embedded Whisper |
 | **P2** | **Native `wlr-layer-shell` HUD Overlay**| Wayland / HUD | **Planned** | Multi-monitor anchored non-focus overlay without position drift |
@@ -57,6 +57,7 @@ High-quality Text-To-Speech (TTS) models (e.g. Piper, Coqui, F5-TTS, StyleTTS 2)
     - **LJSpeech Format**: `metadata.csv` (`filename|transcript|normalized_transcript`).
     - **Piper / XTTS Manifests**: JSON/CSV formatted for immediate use by Piper, Coqui, or F5-TTS fine-tuning scripts.
   - Option to split into train/validation sets (e.g. 95% / 5%).
+- **Status: implemented** in `src/dataset.rs`. Output layout, manifest field names, the silence-gate definition (windowed RMS reusing the VAD threshold) and the seeded split are documented in the module docs of `src/dataset.rs`.
 
 ---
 

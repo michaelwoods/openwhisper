@@ -1,4 +1,6 @@
+use crate::dataset::{DEFAULT_MIN_DURATION_SECS, DEFAULT_SEED, DEFAULT_TRAIN_RATIO, ExportFormat};
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "openwhisper")]
@@ -157,6 +159,37 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Export paired .wav/.txt recordings as a TTS training dataset (LJSpeech / Piper / XTTS)
+    #[command(alias = "export-dataset")]
+    ExportTtsDataset {
+        /// Directory with paired .wav/.txt recordings (defaults to the configured save_audio_dir)
+        #[arg(short, long)]
+        source: Option<PathBuf>,
+
+        /// Output directory for the dataset (wavs/ plus manifests)
+        #[arg(short, long, default_value = "tts_dataset")]
+        output: PathBuf,
+
+        /// Drop clips shorter than this many seconds
+        #[arg(long, default_value_t = DEFAULT_MIN_DURATION_SECS)]
+        min_duration: f32,
+
+        /// Fraction of clips assigned to the training split (rest is validation)
+        #[arg(long, default_value_t = DEFAULT_TRAIN_RATIO)]
+        train_ratio: f64,
+
+        /// Manifest format to write
+        #[arg(long, value_enum, default_value_t = ExportFormat::All)]
+        format: ExportFormat,
+
+        /// Seed for the deterministic train/validation split
+        #[arg(long, default_value_t = DEFAULT_SEED)]
+        seed: u64,
+
+        /// Emit the machine-readable summary as JSON on stdout (human summary is stderr-only)
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 #[cfg(test)]
@@ -304,5 +337,69 @@ mod tests {
             Some(Commands::Autostart { enable, .. }) => assert!(enable),
             _ => panic!("Expected Commands::Autostart with enable"),
         }
+    }
+
+    #[test]
+    fn test_cli_export_tts_dataset_defaults_and_flags() {
+        let d = Cli::try_parse_from(["openwhisper", "export-tts-dataset"]).unwrap();
+        match d.command {
+            Some(Commands::ExportTtsDataset {
+                source,
+                output,
+                min_duration,
+                train_ratio,
+                format,
+                seed,
+                json,
+            }) => {
+                assert!(source.is_none());
+                assert_eq!(output, PathBuf::from("tts_dataset"));
+                assert_eq!(min_duration, 0.5);
+                assert_eq!(train_ratio, 0.95);
+                assert_eq!(format, ExportFormat::All);
+                assert_eq!(seed, DEFAULT_SEED);
+                assert!(!json);
+            }
+            _ => panic!("Expected Commands::ExportTtsDataset"),
+        }
+
+        let f = Cli::try_parse_from([
+            "openwhisper",
+            "export-dataset",
+            "--source",
+            "/rec",
+            "-o",
+            "/out",
+            "--min-duration",
+            "1.25",
+            "--train-ratio",
+            "0.8",
+            "--format",
+            "ljspeech",
+            "--json",
+        ])
+        .unwrap();
+        match f.command {
+            Some(Commands::ExportTtsDataset {
+                source,
+                min_duration,
+                train_ratio,
+                format,
+                json,
+                ..
+            }) => {
+                assert_eq!(source, Some(PathBuf::from("/rec")));
+                assert_eq!(min_duration, 1.25);
+                assert_eq!(train_ratio, 0.8);
+                assert_eq!(format, ExportFormat::LjSpeech);
+                assert!(json);
+            }
+            _ => panic!("Expected Commands::ExportTtsDataset"),
+        }
+
+        assert!(
+            Cli::try_parse_from(["openwhisper", "export-tts-dataset", "--format", "bogus"])
+                .is_err()
+        );
     }
 }

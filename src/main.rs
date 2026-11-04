@@ -2,6 +2,7 @@ use openwhisper::audio;
 use openwhisper::autostart;
 use openwhisper::cli;
 use openwhisper::config;
+use openwhisper::dataset;
 use openwhisper::doctor;
 use openwhisper::gui;
 use openwhisper::history;
@@ -352,6 +353,35 @@ async fn main() -> Result<()> {
 
         Commands::Doctor { json, ci } => {
             doctor::run_doctor(&config, json, ci).await?;
+            Ok(())
+        }
+
+        Commands::ExportTtsDataset {
+            source,
+            output,
+            min_duration,
+            train_ratio,
+            format,
+            seed,
+            json,
+        } => {
+            let source_dir = source
+                .or_else(|| config.save_audio_dir.as_ref().map(std::path::PathBuf::from))
+                .context(
+                    "No source directory: pass --source or set save_audio_dir in config.toml",
+                )?;
+            let mut opts = dataset::ExportOptions::new(source_dir, output);
+            opts.format = format;
+            opts.min_duration_secs = min_duration;
+            opts.train_ratio = train_ratio;
+            opts.seed = seed;
+            opts.silence_threshold = config.vad_energy_threshold;
+            let summary = dataset::export_dataset(&opts)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+            } else {
+                eprint!("{}", summary.format_report());
+            }
             Ok(())
         }
 

@@ -336,3 +336,77 @@ fn test_cli_doctor_default_connection_refused_still_fails() {
         stt["summary"]
     );
 }
+
+fn write_cli_fixture(dir: &std::path::Path) {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(dir.join("a.wav"), spec).unwrap();
+    for i in 0..16_000 {
+        let t = i as f32 / 16_000.0;
+        w.write_sample(((t * 440.0 * std::f32::consts::TAU).sin() * 9000.0) as i16)
+            .unwrap();
+    }
+    w.finalize().unwrap();
+    std::fs::write(dir.join("a.txt"), "hello world").unwrap();
+}
+
+#[test]
+fn test_cli_export_tts_dataset_json_stdout_only() {
+    let src = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    write_cli_fixture(src.path());
+
+    let assert = Command::cargo_bin("openwhisper")
+        .unwrap()
+        .args(["export-tts-dataset", "--json", "--source"])
+        .arg(src.path())
+        .arg("--output")
+        .arg(out.path())
+        .assert()
+        .success();
+    let output = assert.get_output();
+
+    // stdout is exactly one machine-readable JSON document...
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["exported"], 1);
+    assert_eq!(json["skipped"]["corrupt"], 0);
+    // ...and no human summary leaks into it or is duplicated on stderr.
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("OpenWhisper TTS dataset export"));
+    assert!(out.path().join("metadata.csv").is_file());
+}
+
+#[test]
+fn test_cli_export_tts_dataset_human_summary_on_stderr() {
+    let src = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    write_cli_fixture(src.path());
+
+    Command::cargo_bin("openwhisper")
+        .unwrap()
+        .args(["export-tts-dataset", "--source"])
+        .arg(src.path())
+        .arg("--output")
+        .arg(out.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains("exported: 1 clip(s)"));
+}
+
+#[test]
+fn test_cli_export_tts_dataset_bad_source_fails() {
+    Command::cargo_bin("openwhisper")
+        .unwrap()
+        .args([
+            "export-tts-dataset",
+            "--source",
+            "/nonexistent/openwhisper-src",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::is_empty());
+}

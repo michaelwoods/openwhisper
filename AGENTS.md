@@ -66,6 +66,7 @@ openwhisper/
 │   ├── cli.rs                 # Clap CLI definitions and subcommand routing
 │   ├── config.rs              # Configuration loader & validator (~/.config/openwhisper/config.toml)
 │   ├── doctor.rs              # Pre-flight diagnostic engine (6 subsystem health checks)
+│   ├── dataset.rs             # `export-tts-dataset`: read-only LJSpeech / Piper / XTTS manifest exporter
 │   ├── notification.rs        # Thread-safe desktop notifications via libnotify
 │   ├── setup.rs               # Automated setup, asset deployment, systemd registration
 │   ├── autostart.rs           # Autostart inspector and manager (systemd & XDG desktop)
@@ -106,6 +107,7 @@ openwhisper/
 │   └── settings.slint         # Configuration settings UI layout
 ├── tests/                     # Integration tests
 │   ├── cli_tests.rs           # assert_cmd CLI subcommand suite
+│   ├── dataset_export_test.rs # TTS dataset exporter (filters, split determinism, read-only source)
 │   └── pipeline_integration_test.rs # wiremock end-to-end STT transcription pipeline
 ├── systemd/
 │   ├── openwhisper.service    # User systemd service unit (headless core daemon)

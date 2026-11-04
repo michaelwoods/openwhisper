@@ -142,6 +142,7 @@ openwhisper reload
 | `openwhisper cancel` | | Abort current dictation without pasting |
 | `openwhisper settings` | `gui`, `config-gui` | Open graphical settings panel |
 | `openwhisper history` | `hist` | Query transcription history (`--gui` for standalone viewer) |
+| `openwhisper export-tts-dataset` | `export-dataset` | Export paired recordings as an LJSpeech / Piper / XTTS training dataset (`--source`, `--output`, `--min-duration`, `--train-ratio`, `--format`, `--seed`, `--json`) |
 | `openwhisper doctor` | `diag` | Run 6-subsystem pre-flight diagnostics (`--json` supported) |
 | `openwhisper test-hotkey`| `sniff-keys` | Real-time hardware key sniffer (inspect scancodes & timings) |
 | `openwhisper test-ovms` | | Test connectivity and inference latency to STT backend |

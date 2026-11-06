@@ -125,8 +125,22 @@ fn match_spoken_macro(tokens: &[&str]) -> Option<(SpokenMacro, usize)> {
 ///
 /// Runs on the raw transcript, before any casing transform. Whitespace is normalised: tokens are
 /// re-joined with single spaces, no space precedes `. , ? ! : ;` or a closing quote/paren, and
-/// line breaks swallow adjacent spaces. Punctuation the STT engine already attached to a spoken
-/// keyword (`"comma,"`) or left dangling before a mark (`"Yes, comma"`) is not duplicated.
+/// line breaks swallow adjacent spaces.
+///
+/// ### Dangling and Attached Punctuation
+/// Punctuation the STT engine already attached to a spoken keyword (e.g. `"comma,"` or `"period."`)
+/// is discarded so the expanded macro replaces it.
+///
+/// Punctuation left dangling before an inserted mark is deduplicated:
+/// - Dangling commas, semicolons, and colons (`[, ; :]`) are dropped before any inserted mark
+///   (e.g. `"Yes, comma"` → `"Yes,"`, `"A; semicolon"` → `"A;"`, `"Yes, period"` → `"Yes."`).
+/// - A single dangling terminal mark (`[. ! ?]`) is absorbed before an inserted terminal mark
+///   (e.g. `"Done. period"` → `"Done."`, `"Really? question mark"` → `"Really?"`,
+///   `"Stop! exclamation mark"` → `"Stop!"`).
+/// - Multi-dot sequences (an intentional ellipsis like `...`) are preserved and never collapsed
+///   into a single dot: a spoken period following an ellipsis is absorbed rather than appending
+///   a redundant fourth dot (`"Hmm... period"` → `"Hmm..."`), while other terminal marks attach
+///   directly (`"Hmm... question mark"` → `"Hmm...?"`).
 pub fn apply_spoken_punctuation(text: &str) -> String {
     let tokens: Vec<&str> = text.split_whitespace().collect();
     let mut out = String::with_capacity(text.len());
@@ -156,6 +170,29 @@ pub fn apply_spoken_punctuation(text: &str) -> String {
                 while out.ends_with([',', ';', ':']) {
                     out.pop();
                 }
+
+                if matches!(c, '.' | '!' | '?') {
+                    if out.ends_with("..") {
+                        // Multi-dot case: an intentional ellipsis (e.g. "Hmm...") is preserved
+                        // and not collapsed into a single '.'. If inserting a '.', the dot is
+                        // already present in the ellipsis, so absorb the spoken period without
+                        // appending a redundant fourth dot.
+                        if c == '.' {
+                            glue_next = false;
+                            continue;
+                        }
+                    } else {
+                        let mut rev = out.chars().rev();
+                        let last = rev.next();
+                        let prev = rev.next();
+                        if last.is_some_and(|ch| matches!(ch, '.' | '!' | '?'))
+                            && !prev.is_some_and(|p| matches!(p, '.' | '!' | '?'))
+                        {
+                            out.pop();
+                        }
+                    }
+                }
+
                 out.push(c);
                 glue_next = false;
             }
@@ -466,6 +503,56 @@ mod tests {
         assert_eq!(sp("Yes, period."), "Yes.");
         // Punctuation in the middle of a phrase breaks the match.
         assert_eq!(sp("new, line"), "new, line");
+
+        // Positive controls for attached mark followed by spoken mark (issue #18).
+        assert_eq!(sp("Done. period"), "Done.");
+        assert_eq!(sp("Really? question mark"), "Really?");
+        assert_eq!(sp("Stop! exclamation mark"), "Stop!");
+        assert_eq!(sp("Stop! exclamation point"), "Stop!");
+        assert_eq!(sp("Done. full stop"), "Done.");
+
+        // Attached marks with decorated keywords.
+        assert_eq!(sp("Done. period."), "Done.");
+        assert_eq!(sp("Really? question mark?"), "Really?");
+        assert_eq!(sp("Stop! exclamation mark!"), "Stop!");
+
+        // Preserves comma/semicolon/colon behaviour.
+        assert_eq!(sp("Yes, comma"), "Yes,");
+        assert_eq!(sp("A; semicolon"), "A;");
+        assert_eq!(sp("Note: colon"), "Note:");
+
+        // Cross-mark terminal replacements.
+        assert_eq!(sp("Done. exclamation mark"), "Done!");
+        assert_eq!(sp("Really. question mark"), "Really?");
+        assert_eq!(sp("Done! period"), "Done.");
+        assert_eq!(sp("Really? period"), "Really.");
+    }
+
+    #[test]
+    fn test_spoken_ellipsis_preserved_not_collapsed() {
+        // Multi-dot case: an intentional ellipsis is preserved and never collapsed
+        // into a single dot (issue #18).
+        assert_eq!(sp("Hmm... period"), "Hmm...");
+        assert_eq!(sp("Hmm... full stop"), "Hmm...");
+        assert_eq!(sp("Hmm... question mark"), "Hmm...?");
+        assert_eq!(sp("Hmm... exclamation mark"), "Hmm...!");
+        assert_eq!(sp("Wait.. period"), "Wait..");
+        assert_ne!(sp("Hmm... period"), "Hmm.");
+    }
+
+    #[test]
+    fn test_spoken_dangling_mark_without_keyword_untouched() {
+        // Negative controls: trailing marks without a following spoken keyword stay untouched.
+        assert_eq!(sp("Done."), "Done.");
+        assert_eq!(sp("Really?"), "Really?");
+        assert_eq!(sp("Stop!"), "Stop!");
+        assert_eq!(sp("Yes,"), "Yes,");
+        assert_eq!(sp("A;"), "A;");
+        assert_eq!(sp("Note:"), "Note:");
+        assert_eq!(sp("Hmm..."), "Hmm...");
+        assert_eq!(sp("A. B? C!"), "A. B? C!");
+        // Dangling terminal mark before a non-terminal spoken mark is not stripped.
+        assert_eq!(sp("Done. comma"), "Done.,");
     }
 
     #[test]
@@ -474,6 +561,10 @@ mod tests {
             "  Hello comma world period  ",
             "Add a new line then a new paragraph.",
             "commander periodic",
+            "Done. period",
+            "Really? question mark",
+            "Stop! exclamation mark",
+            "Hmm... period",
             "  ",
             "",
         ];

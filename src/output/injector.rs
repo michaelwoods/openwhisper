@@ -1,4 +1,6 @@
-use anyhow::{Context, Result};
+#[cfg(target_os = "linux")]
+use anyhow::Context;
+use anyhow::Result;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -295,6 +297,7 @@ impl TextInjector {
 
         #[cfg(not(target_os = "linux"))]
         {
+            let _ = text;
             self.paste_clipboard(0)
         }
     }

@@ -1,10 +1,14 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+#[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Notify;
 use tokio::sync::mpsc::Sender;
@@ -143,6 +147,7 @@ impl IpcServer {
         self
     }
 
+    #[cfg(unix)]
     pub async fn run(self) -> Result<()> {
         let path = Path::new(&self.socket_path);
         if path.exists() {
@@ -323,6 +328,16 @@ impl IpcServer {
         let _ = fs::remove_file(&self.socket_path);
         Ok(())
     }
+
+    /// IPC server loop placeholder for non-Unix platforms.
+    ///
+    /// Unix domain sockets (UDS) are Unix-only. On Windows, IPC transport will use named pipes
+    /// in a follow-up phase (ROADMAP.md §6).
+    #[cfg(not(unix))]
+    pub async fn run(self) -> Result<()> {
+        let _ = (self.socket_path, self.cmd_tx, self.event_tx, self.shutdown);
+        anyhow::bail!("IPC server not supported on this platform")
+    }
 }
 
 /// Parses an incoming IPC command string either from JSON or from plain-text alias.
@@ -355,6 +370,7 @@ pub fn parse_ipc_command(input: &str) -> Option<IpcCommand> {
     }
 }
 
+#[cfg(unix)]
 pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
     let stream = UnixStream::connect(socket_path).await.with_context(|| {
         format!(
@@ -379,6 +395,15 @@ pub async fn send_ipc_command(socket_path: &str, cmd: IpcCommand) -> Result<IpcR
     Ok(response)
 }
 
+/// Sends a command to the OpenWhisper daemon over IPC (non-Unix stub).
+///
+/// Unix domain sockets (UDS) are Unix-only. On Windows, IPC transport will use named pipes
+/// in a follow-up phase (ROADMAP.md §6).
+#[cfg(not(unix))]
+pub async fn send_ipc_command(_socket_path: &str, _cmd: IpcCommand) -> Result<IpcResponse> {
+    anyhow::bail!("IPC not supported on this platform")
+}
+
 /// Sends an acknowledged shutdown request to the daemon, applying a bounded
 /// client-side timeout so callers (CLI and tray) never hang indefinitely.
 ///
@@ -396,7 +421,7 @@ pub async fn send_shutdown(socket_path: &str) -> Result<IpcResponse> {
 
 /// Synchronous IPC client sending a command over Unix domain socket.
 /// Safe to call from UI threads and non-async contexts without initiating a Tokio runtime.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcResponse> {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
@@ -422,7 +447,11 @@ pub fn send_ipc_command_sync(socket_path: &str, cmd: IpcCommand) -> Result<IpcRe
     Ok(response)
 }
 
-#[cfg(not(target_os = "linux"))]
+/// Synchronous IPC client sending a command over Unix domain socket (non-Unix stub).
+///
+/// Unix domain sockets (UDS) are Unix-only. On Windows, IPC transport will use named pipes
+/// in a follow-up phase (ROADMAP.md §6).
+#[cfg(not(unix))]
 pub fn send_ipc_command_sync(_socket_path: &str, _cmd: IpcCommand) -> Result<IpcResponse> {
     anyhow::bail!("IPC not supported on this platform")
 }
@@ -430,11 +459,13 @@ pub fn send_ipc_command_sync(_socket_path: &str, _cmd: IpcCommand) -> Result<Ipc
 /// Bidirectional streaming IPC client connected to the OpenWhisper daemon.
 /// Subscribes to daemon events (state changes, audio RMS levels, transcriptions)
 /// and allows sending commands back over the same persistent connection.
+#[cfg(unix)]
 pub struct EventStream {
     reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>,
     writer: tokio::net::unix::OwnedWriteHalf,
 }
 
+#[cfg(unix)]
 impl EventStream {
     pub async fn connect(socket_path: &str) -> Result<Self> {
         let stream = UnixStream::connect(socket_path).await.with_context(|| {
@@ -478,6 +509,28 @@ impl EventStream {
         payload.push(b'\n');
         self.writer.write_all(&payload).await?;
         Ok(())
+    }
+}
+
+/// Bidirectional streaming IPC client connected to the OpenWhisper daemon (non-Unix stub).
+///
+/// Unix domain sockets (UDS) are Unix-only. On Windows, IPC transport will use named pipes
+/// in a follow-up phase (ROADMAP.md §6).
+#[cfg(not(unix))]
+pub struct EventStream;
+
+#[cfg(not(unix))]
+impl EventStream {
+    pub async fn connect(_socket_path: &str) -> Result<Self> {
+        anyhow::bail!("IPC not supported on this platform")
+    }
+
+    pub async fn next_event(&mut self) -> Result<Option<IpcEvent>> {
+        anyhow::bail!("IPC not supported on this platform")
+    }
+
+    pub async fn send_command(&mut self, _cmd: IpcCommand) -> Result<()> {
+        anyhow::bail!("IPC not supported on this platform")
     }
 }
 
@@ -581,6 +634,7 @@ mod tests {
         assert!(serialized.contains(r#""message":"done""#));
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_ipc_roundtrip_newline_framed() {
         let temp_dir = std::env::temp_dir();
@@ -617,6 +671,7 @@ mod tests {
         let _ = std::fs::remove_file(sock_path);
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_ipc_event_stream_subscription() {
         let temp_dir = std::env::temp_dir();
@@ -696,6 +751,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_ipc_shutdown_roundtrip_stops_server() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
@@ -747,6 +803,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_ipc_client_disconnect_does_not_shutdown() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
@@ -784,6 +841,7 @@ mod tests {
         let _ = std::fs::remove_file(sock_path);
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_ipc_shutdown_timeout_reports_error() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");

@@ -1,9 +1,8 @@
-#[cfg(target_os = "linux")]
 use anyhow::Result;
+use tokio::sync::mpsc::Sender;
+
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
-#[cfg(target_os = "linux")]
-use tokio::sync::mpsc::Sender;
 #[cfg(target_os = "linux")]
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 #[cfg(target_os = "linux")]
@@ -159,6 +158,7 @@ impl PortalShortcutListener {
 
     #[cfg(not(target_os = "linux"))]
     pub async fn run(self) -> Result<()> {
+        let _ = self.cmd_tx;
         Ok(())
     }
 }

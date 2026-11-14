@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+#[cfg(target_os = "linux")]
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -455,6 +457,7 @@ impl ksni::Tray for OpenWhisperTray {
 
 /// Shows a shutdown-failure notification from a dedicated blocking thread so the
 /// notification backend is never invoked on a Tokio async worker thread.
+#[cfg(target_os = "linux")]
 fn notify_shutdown_failure(summary: &str, body: &str) {
     let summary = summary.to_string();
     let body = body.to_string();
@@ -570,8 +573,12 @@ impl TrayController {
         {
             *lock = Some(l);
         }
+        #[cfg(target_os = "linux")]
+        let err_for_lock = error.clone();
+        #[cfg(not(target_os = "linux"))]
+        let err_for_lock = error;
         if let Ok(mut lock) = self.last_error.write() {
-            *lock = error.clone();
+            *lock = err_for_lock;
         }
         #[cfg(target_os = "linux")]
         if let Ok(guard) = self.handle.read()
@@ -596,8 +603,12 @@ impl TrayController {
     }
 
     pub fn set_server_url(&self, url: String) {
+        #[cfg(target_os = "linux")]
+        let url_for_lock = url.clone();
+        #[cfg(not(target_os = "linux"))]
+        let url_for_lock = url;
         if let Ok(mut lock) = self.server_url.write() {
-            *lock = url.clone();
+            *lock = url_for_lock;
         }
         #[cfg(target_os = "linux")]
         if let Ok(guard) = self.handle.read()
@@ -617,8 +628,12 @@ impl TrayController {
     }
 
     pub fn set_active_device(&self, dev: Option<String>) {
+        #[cfg(target_os = "linux")]
+        let dev_for_lock = dev.clone();
+        #[cfg(not(target_os = "linux"))]
+        let dev_for_lock = dev;
         if let Ok(mut lock) = self.active_device.write() {
-            *lock = dev.clone();
+            *lock = dev_for_lock;
         }
         #[cfg(target_os = "linux")]
         if let Ok(guard) = self.handle.read()
@@ -741,6 +756,7 @@ pub async fn start_tray_service(
 
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = socket_path;
         (
             TrayController::new(
                 state.clone(),

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use std::collections::HashSet;
@@ -9,8 +10,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 #[cfg(target_os = "linux")]
 use std::thread;
-#[cfg(target_os = "linux")]
-use std::time::Duration;
 #[cfg(target_os = "linux")]
 use tokio::sync::mpsc::Sender;
 

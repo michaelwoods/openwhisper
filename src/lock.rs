@@ -83,6 +83,7 @@ impl SingleInstanceLock {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(false)
                 .open(&lock_path)
                 .map_err(|e| format!("Failed to open lock file {}: {e}", lock_path.display()))?;
             Ok(Self {

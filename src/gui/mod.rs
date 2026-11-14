@@ -610,7 +610,9 @@ pub fn run_gui(config: Config) -> Result<()> {
 
             match cfg.save() {
                 Ok(_) => {
-                    let socket_path = cfg.socket_path.clone();
+                    #[cfg(target_os = "linux")]
+                    let hud_position = cfg.hud_position;
+                    let socket_path = cfg.socket_path;
                     let mut reloaded = false;
                     if let Ok(res) = crate::hotkey::ipc::send_ipc_command_sync(
                         &socket_path,
@@ -633,7 +635,7 @@ pub fn run_gui(config: Config) -> Result<()> {
                     }
 
                     #[cfg(target_os = "linux")]
-                    crate::setup::sync_kwin_hud_position(cfg.hud_position);
+                    crate::setup::sync_kwin_hud_position(hud_position);
 
                     let autostart_target = ui.get_autostart_enabled();
                     if autostart_target != crate::autostart::is_enabled() {

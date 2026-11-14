@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "linux")]
 use crate::output::clipboard::has_command_in_path;
 
 #[cfg(target_os = "linux")]
@@ -459,6 +460,7 @@ pub fn verify_kwin_rules(_file: &str) -> Result<()> {
 #[cfg(not(target_os = "linux"))]
 pub fn repair_kwin_rules_if_needed() {}
 
+#[cfg(any(target_os = "linux", test))]
 fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_escape = false;
